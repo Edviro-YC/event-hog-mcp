@@ -31,6 +31,7 @@ summary: >-
 related:
   - "[[Pick-a-CRM-and-Go]]"
   - "[[DATA-POLICY]]"
+type: Issues
 ---
 
 # The Registration Desk Is Live, but the Server Behind It Is Not

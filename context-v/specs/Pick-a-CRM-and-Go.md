@@ -30,6 +30,7 @@ summary: >-
   mark_crm_synced, export_hubspot_csv, or hubspot-mcp-wrap.
 related:
   - "[[2026-10-25_Three-Layers-and-an-Agnostic-CRM-for-Event-Hog]]"
+type: Specs
 ---
 
 # Pick a CRM and Go
