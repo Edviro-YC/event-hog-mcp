@@ -46,7 +46,7 @@ jobs:
           cache-dependency-path: splash/pnpm-lock.yaml
 
       - name: Install
-        run: pnpm install --frozen-lockfile --ignore-workspace
+        run: pnpm install --frozen-lockfile
 
       - name: Build
         run: pnpm build
