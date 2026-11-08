@@ -9,7 +9,8 @@
 import git from "isomorphic-git";
 import http from "isomorphic-git/http/web";
 import type { Env, Handler, Person } from "./index";
-import { DIR, open, read, walk, slug, people } from "./index";
+import { DIR, open, read, walk, slug } from "./index";
+import { allPeople } from "./team";
 import { MemoryFS } from "./memory-fs";
 import { ensureOrg } from "./crm";
 import { ensureLocation, linkLocationStmt, addEdge } from "./locations";
@@ -209,7 +210,7 @@ export const EVENT_HANDLERS: Record<string, Handler> = {
     const kit = await open(env, env.KIT_REPO, "read");
     const paths = (await walk(kit, TEMPLATE)).filter((p) => p !== `${TEMPLATE}/prep/event.md`);
     if (!paths.length) throw new Error(`The kit has no ${TEMPLATE}/. Nothing to start from.`);
-    const team = a.team || Object.values(people(env)).map((p) => p.name).join(" · ");
+    const team = a.team || (await allPeople(env)).map((p) => p.name).join(" · ");
     const fill: Record<string, string> = {
       "Event name": a.name,
       City: a.city || a.venue || "location TBD",

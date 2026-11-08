@@ -8,6 +8,7 @@
 import type { Env, Handler, Person } from "./index";
 import { ensureLocation, linkLocationStmt } from "./locations";
 import { crmEmail } from "./index";
+import { TEAM_TABLE } from "./team";
 
 const uuid = () => crypto.randomUUID();
 const nowIso = () => new Date().toISOString();
@@ -252,6 +253,7 @@ export const CRM_HANDLERS: Record<string, Handler> = {
     if (!/^(select|with)\b/i.test(sql) || sql.includes(";") || WRITE_WORDS.test(sql)) {
       throw new Error("query_crm runs one read-only SELECT (or WITH) statement.");
     }
+    if (sql.toLowerCase().includes(TEAM_TABLE)) throw new Error("query_crm can't read who has access. Use list_people.");
     const { results } = await env.CRM.prepare(`SELECT * FROM (${sql}) LIMIT 200`).all();
     if (!results?.length) return "No rows.";
     return `${results.length} row(s):\n${JSON.stringify(results, null, 1)}`;

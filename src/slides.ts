@@ -26,8 +26,9 @@
 // verify, alt text, and commentary kept apart from the transcription.
 
 import type { Env, Front, Handler, Person, Workspace } from "./index";
-import { DIR, open, read, walk, write, parseFront, renderFront, slug, now, people } from "./index";
+import { DIR, open, read, walk, write, parseFront, renderFront, slug, now } from "./index";
 import { pendingIn } from "./brand";
+import { connectorKey, personForCaptureToken } from "./team";
 
 const ROOT = "slides";
 const MAX_BYTES = 4_000_000;
@@ -45,11 +46,6 @@ const ev = (args: any, env: Env) => (args?.event ? String(args.event) : env.DEFA
 export async function captureToken(key: string): Promise<string> {
   const hash = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(`${key}:capture`));
   return [...new Uint8Array(hash)].map((b) => b.toString(16).padStart(2, "0")).join("").slice(0, 32);
-}
-
-export async function personForToken(env: Env, token: string): Promise<{ key: string; person: Person } | null> {
-  for (const [key, person] of Object.entries(people(env))) if ((await captureToken(key)) === token) return { key, person };
-  return null;
 }
 
 function folderFor(session: string, date: string): string {
@@ -168,7 +164,7 @@ export async function addSlides(
 // ---------------------------------------------------------------- capture page
 
 export async function handleCapture(request: Request, env: Env, token: string): Promise<Response> {
-  const who = await personForToken(env, token);
+  const who = await personForCaptureToken(env, token);
   if (!who) return new Response("Unknown capture link", { status: 401 });
   const url = new URL(request.url);
 
@@ -359,8 +355,7 @@ export const SLIDE_HANDLERS: Record<string, Handler> = {
   },
 
   async slide_capture_link(args, env, person) {
-    const key = Object.entries(people(env)).find(([, p]) => p.email === person.email)?.[0];
-    if (!key) throw new Error("Couldn't find this connector's key.");
+    const key = connectorKey(person);
     const q = new URLSearchParams();
     if (args?.session) q.set("session", String(args.session));
     if (args?.event) q.set("event", String(args.event));
