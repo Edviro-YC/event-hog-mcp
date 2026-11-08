@@ -21,6 +21,7 @@ import { SLIDE_TOOLS, SLIDE_HANDLERS, SLIDE_PROMPTS, handleCapture, serveMedia }
 import { BRAND_TOOLS, BRAND_HANDLERS, BRAND_PROMPTS } from "./brand";
 import { EVENT_TOOLS, EVENT_HANDLERS, withCurrentEvent, forEvent, eventsTable } from "./events";
 import { UPLOAD_TOOLS, UPLOAD_HANDLERS, handleUpload } from "./uploads";
+import { TEAM_TOOLS, TEAM_HANDLERS, personForKey, allPeople } from "./team";
 
 export interface Env {
   ARTIFACTS: any;
@@ -48,6 +49,8 @@ export interface Person {
   emails?: string[];
   /** The address their CRM (HubSpot) knows them by: owners and "created by" match on it. */
   crm_email?: string;
+  /** Can add and remove teammates from chat. Only honored in the PEOPLE secret. */
+  admin?: boolean;
 }
 
 /** The address to use anywhere a CRM attributes work to this person. */
@@ -71,6 +74,7 @@ How to use it:
 - Starters: whenever someone logs a contact, adds a note, or saves a speaker profile, load parallel-content-generation-starters (once per conversation) and follow it. Answer the person first; starters come after, short, and never block logging. Flash cards for acronyms, vocabulary, concepts and market standards go in the shared deck with save_flash_cards; flash_cards reads it. Post drafts (tweets, threads, LinkedIn, blog) go in drafts/ with save_draft and add_to_draft, in the company voice for official pieces and the person's own voice for theirs (get_config). Nothing is ever posted from here.
 - Slides and other images: an image attached in chat can't be passed to a tool. If you have a code-execution sandbox, the attachment is a file there: upload_link gives a one-time URL to send it to the event's image host with curl (slides become slides waiting for notes; badges, cards, photos and PDFs return a /media/ URL to put in the contact or note). If the sandbox can't reach the host, or there is none, give the person their slide_capture_link (a camera page that shrinks and saves photos under their name) and don't retry the upload. Then list slides needing notes, look at each with view_slide, and write them up with save_slide_notes (load the capture-slides skill first).
 - Brand: get_design_system returns the organization's DESIGN.md; if there is none, extract_brand reads the company site and maintain-design-system says how to draft one. When a batch of slides is written up, ask whether any are worth recreating in the brand (recreate-slides-in-brand); every recreation credits its source on the slide.
+- Team: list_people shows everyone with access to this server (they can all see every event). Admins can add a teammate with add_person, which returns that teammate's personal connector URL once: confirm the name and email first, and tell the person to send the URL privately. remove_person revokes someone added that way.
 - Start with event_brief to see the event, the team, the prep docs, and what's been logged. Tools use the current event (the one on today, else one that ended in the last week, else the next) unless you pass event; list_events shows them all. new_event starts a workspace for a new event from the kit's template: confirm the official name, dates, city and time zone with the person first, then offer the event-prep skill.
 - Before logging a contact, search for them: log_contact appends to an existing contact (matched by email, then name) instead of making a duplicate, but a quick search shows what teammates already know.
 - log_contact takes whatever the person gives you: a typed note, a badge or business-card photo you've read, or a voice memo transcript. Never invent fields. Leave unknown ones out.
@@ -104,7 +108,7 @@ export default {
     }
     if (!match) return new Response("Not found", { status: 404 });
 
-    const person = people(env)[match[1]];
+    const person = await personForKey(env, match[1]);
     if (!person) return new Response("Unknown connector key", { status: 401 });
 
     if (request.method !== "POST") {
@@ -558,7 +562,7 @@ const BASE_TOOLS = [
   },
 ];
 
-const TOOLS = [...BASE_TOOLS, ...CRM_TOOLS, ...LOCATION_TOOLS, ...SKILL_TOOLS, ...STARTER_TOOLS, ...SLIDE_TOOLS, ...BRAND_TOOLS, ...EVENT_TOOLS, ...UPLOAD_TOOLS];
+const TOOLS = [...BASE_TOOLS, ...CRM_TOOLS, ...LOCATION_TOOLS, ...SKILL_TOOLS, ...STARTER_TOOLS, ...SLIDE_TOOLS, ...BRAND_TOOLS, ...EVENT_TOOLS, ...UPLOAD_TOOLS, ...TEAM_TOOLS];
 
 // Most tools answer in text; a few (view_slide) return MCP content blocks, e.g. an image.
 export type Handler = (args: any, env: Env, person: Person) => Promise<string | { content: any[] }>;
@@ -574,10 +578,12 @@ const HANDLERS: Record<string, Handler> = {
   ...BRAND_HANDLERS,
   ...EVENT_HANDLERS,
   ...UPLOAD_HANDLERS,
+  ...TEAM_HANDLERS,
   async whoami(_args, env, person) {
     const [primary, ...others] = identities(person);
     const also = others.length ? ` Also known as: ${others.join(", ")}.` : "";
-    return `You are ${person.name} <${primary}> (commits are authored as this address).${also} HubSpot knows you as ${crmEmail(person)}. Current event: ${env.DEFAULT_EVENT}.`;
+    const admin = person.admin === true ? " You're an admin: you can add and remove teammates (add_person, remove_person)." : "";
+    return `You are ${person.name} <${primary}> (commits are authored as this address).${also} HubSpot knows you as ${crmEmail(person)}. Current event: ${env.DEFAULT_EVENT}.${admin}`;
   },
 
   async list_events(_args, env) {
@@ -655,7 +661,7 @@ const HANDLERS: Record<string, Handler> = {
   async log_contact(args, env, person) {
     if (!args?.name || !args?.notes) throw new Error("A contact needs at least a name and notes.");
     const email = String(args.email ?? "").trim().toLowerCase();
-    const teammate = email ? Object.values(people(env)).find((p) => identities(p).includes(email)) : undefined;
+    const teammate = email ? (await allPeople(env)).find((p) => identities(p).includes(email)) : undefined;
     if (teammate) throw new Error(`${email} is ${teammate.name}, a teammate on this workspace, not a contact. Use add_note for team notes.`);
     const event = ev(args, env);
     const nameSlug = slug(args.name);

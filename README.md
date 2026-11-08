@@ -179,6 +179,9 @@ first, then from the CRM deployment's brain repo (`BRAIN_NAMESPACE/SKILLS_REPO`)
 `whoami`, `list_files`, `read_file`, `search`, `recent_activity`,
 `append_to_file`, `add_note`.
 
+**Team:** `list_people` (everyone with access, never their keys), and for
+admins `add_person` (makes a teammate's connector URL) and `remove_person`.
+
 **Contacts and CRM:** `log_contact` (appends to an existing contact matched by
 email, then name and company), `contacts_csv`, `query_crm`, `relate_orgs`,
 `define_location`, `link_location`, `who_is_in`, `crm_queue`,
@@ -204,6 +207,10 @@ skills), which a model can fail to follow.
 
 **Enforced in code:**
 - Every write is a commit authored as the caller (`PEOPLE` maps key → name and email).
+- Only people marked `"admin": true` in `PEOPLE` can add or remove teammates.
+  People added from chat are never admins, and can't be given a teammate's
+  email. Their keys are stored only as hashes, `query_crm` refuses to read
+  that table, and `list_people` never shows a key.
 - Contact and note writes add or append; existing contact fields are filled
   when blank, never overwritten. Slide notes that already exist get "another
   take", not a replacement.
@@ -234,6 +241,12 @@ team can use it, never looked at or used commercially.
 
 - **The connector URL is the credential.** Anyone with `…/mcp/<key>` acts as
   that person. There is no sign-in yet. Treat the URL like a password.
+- **Everyone with access sees every event.** There's no per-event
+  membership: anyone in `PEOPLE` or added with `add_person` can read and
+  write every event on the server, contacts included.
+- **`add_person` returns the new URL in the chat.** It's shown once and not
+  stored, but it stays in that conversation's history. `remove_person`
+  revokes it.
 - **`/media/` is public.** Anyone with a file's URL can open it. Keys the server writes
   include random parts, so its URLs can't be guessed, but don't put anything there you
   wouldn't share by link.
@@ -277,8 +290,10 @@ npx wrangler d1 migrations apply agnostic-crm --remote
    `kit/` into it. Copy `kit/config/skills.example.json` to
    `config/skills.json` and fill it in.
 3. Set the people: `npx wrangler secret put PEOPLE`, a JSON map of connector
-   key → `{ "name", "email", "emails"?, "crm_email"? }`. Generate each key
-   with `openssl rand -hex 24`.
+   key → `{ "name", "email", "emails"?, "crm_email"?, "admin"? }`. Generate
+   each key with `openssl rand -hex 24`. Mark at least one person
+   `"admin": true` so they can add teammates from chat (`add_person`), which
+   stores them in D1 instead of this secret.
 4. `npx wrangler deploy`.
 5. Each person adds `https://<your worker>/mcp/<their key>` in Claude as a
    custom connector. Then ask Claude to start a new event (`new_event`).
