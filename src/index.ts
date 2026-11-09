@@ -21,7 +21,7 @@ import { SLIDE_TOOLS, SLIDE_HANDLERS, SLIDE_PROMPTS, handleCapture, serveMedia }
 import { BRAND_TOOLS, BRAND_HANDLERS, BRAND_PROMPTS } from "./brand";
 import { EVENT_TOOLS, EVENT_HANDLERS, withCurrentEvent, forEvent, eventsTable } from "./events";
 import { UPLOAD_TOOLS, UPLOAD_HANDLERS, handleUpload, uploadTeam } from "./uploads";
-import { TEAM_TOOLS, TEAM_HANDLERS, personForKey, personForCaptureToken, allPeople, selfServeOpen, looksSelfServe, SignupsPaused, teamName } from "./team";
+import { TEAM_TOOLS, OPERATOR_TOOLS, TEAM_HANDLERS, personForKey, personForCaptureToken, allPeople, selfServeOpen, looksSelfServe, SignupsPaused, teamName } from "./team";
 import type { Team } from "./team-do";
 import { ONBOARDING_TOOLS, ONBOARDING_HANDLERS, ONBOARDING_PROMPTS } from "./onboarding";
 import { ENRICH_TOOLS, ENRICH_HANDLERS } from "./enrich";
@@ -239,7 +239,7 @@ async function handle(msg: any, env: Env, person: Person): Promise<any | null> {
       case "ping":
         return reply({});
       case "tools/list":
-        return reply({ tools: TOOLS });
+        return reply({ tools: !env.TEAM_ID && person.admin ? [...TOOLS, ...OPERATOR_TOOLS] : TOOLS });
       case "tools/call": {
         const tool = HANDLERS[params?.name];
         if (!tool) return fail(-32602, `Unknown tool: ${params?.name}`);

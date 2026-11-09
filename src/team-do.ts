@@ -42,6 +42,11 @@ export class Team extends DurableObject<Env> {
     return handleUpload(request, this.teamEnv(team), token);
   }
 
+  /** Erase the team's database (delete_team). */
+  async purge(): Promise<void> {
+    await this.ctx.storage.deleteAll();
+  }
+
   private teamEnv(team: string | undefined): Env {
     if (!team || !TEAM_ID.test(team)) throw new Error(`Not a team id: ${team}`);
     return teamEnv(this.env, team, this.db);
