@@ -9,8 +9,9 @@
 // team media lands under teams/<id>/; that enrich_people is refused for teams;
 // and that add_person adds to the inviter's team only.
 //
-// It creates real repos (tm-<id>-* and tm-<id>-kit) in the Worker's Artifacts
-// namespace and prints them at the end, for deleting.
+// If the home key is an admin, it ends by deleting both teams with
+// delete_team (repos, media, database, connectors) and checks they're gone.
+// Otherwise it prints the team ids, for deleting.
 
 const [base = "http://localhost:8799", homeKey] = process.argv.slice(2);
 if (!homeKey) {
@@ -93,7 +94,7 @@ async function startTeam(label, company) {
   check(`${label}: the capture page opens and saves a slide`, slide.pageOk && slide.ok, JSON.stringify(slide));
   const slideFile = slide.saved?.[0] ? await tool(key, "read_file", { path: slide.saved[0], event: slug }) : { text: "" };
   check(`${label}: the slide image is under teams/<id>/`, team && slideFile.text.includes(`/media/teams/${team}/`), slideFile.text);
-  return { key, label, company, team, founder };
+  return { key, label, company, team, founder, media: up.url };
 }
 
 const a = await startTeam("Team A", "Acme");
@@ -146,7 +147,33 @@ check("Team B: list_people shows only its founder", /^1 connector\(s\)/.test(lis
 const homeList = await tool(homeKey, "list_people");
 check("Home: list_people shows no team members", !homeList.text.includes("Founder") && !homeList.text.includes("Alex"), homeList.text);
 
+// Deletion: a home admin deletes both teams, which also cleans up after the run.
+const homeTools = (await rpc(homeKey, "tools/list", {})).result.tools.map((t) => t.name);
+const left = [];
+if (homeTools.includes("delete_team")) {
+  for (const t of [a, b]) {
+    const keys = [t.key, ...(t === a && mate ? [mate] : [])];
+    const preview = await tool(homeKey, "delete_team", { team: t.team });
+    check(`Home: delete_team previews ${t.label}`, preview.text.includes(`tm-${t.team}-${slug}`) && preview.text.includes(`confirm`), preview.text);
+    const done = await tool(homeKey, "delete_team", { team: t.team, confirm: t.team });
+    check(`Home: delete_team deletes ${t.label}`, !done.error && done.text.startsWith("Deleted"), done.text);
+    for (const key of keys) {
+      const after = await rpc(key, "tools/call", { name: "whoami", arguments: {} }).then((r) => JSON.stringify(r), (err) => `refused: ${err.message}`);
+      check(`${t.label}: a deleted team's key stops working (and starts no new team)`, after.startsWith("refused"), after);
+    }
+    const gone = await tool(homeKey, "delete_team", { team: t.team });
+    check(`Home: ${t.label} is gone from the registry`, gone.error && /No team/.test(gone.text), gone.text);
+  }
+  for (const t of [a, b].filter((t) => t.media)) {
+    const status = (await fetch(t.media)).status;
+    check(`${t.label}: its uploaded file is gone`, status === 404, status);
+  }
+} else {
+  left.push(...[a, b].map((t) => t.team));
+  console.log("(The home key isn't an admin, so the teams weren't deleted.)");
+}
+
 const failed = results.filter((ok) => !ok).length;
 console.log(`\n${results.length - failed}/${results.length} checks passed.`);
-console.log(`Repos created (delete when done): ${[a, b].flatMap((t) => [`tm-${t.team}-${slug}`, `tm-${t.team}-kit`]).join(" ")}`);
+if (left.length) console.log(`Teams left to delete (delete_team, as a home admin): ${left.join(" ")}`);
 process.exit(failed ? 1 : 0);

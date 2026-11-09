@@ -379,6 +379,49 @@ export const TEAM_TOOLS = [
   },
 ];
 
+/** Listed only for admins on the home team: whoever runs this server. */
+export const OPERATOR_TOOLS = [
+  {
+    name: "delete_team",
+    description:
+      "Server operator only (an admin on this server's own team). Delete another team on this server for good, when its people ask: its connectors stop working, and its database, conference repos and media are erased. Without team, lists the teams. With team alone, shows what would be deleted. Only with confirm set to the same team id does it delete. Confirm with the person first; it can't be undone.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        team: { type: "string", description: "The team's id (10 hex characters), from the list" },
+        confirm: { type: "string", description: "The same team id again, to delete it" },
+      },
+    },
+    annotations: { destructiveHint: true },
+  },
+];
+
+const TEAM_ID = /^[a-f0-9]{10}$/;
+
+async function teamRepos(env: Env, team: string): Promise<string[]> {
+  const prefix = `tm-${team}-`;
+  const names: string[] = [];
+  for (let i = 0, cursor: string | undefined; i < 50; i++) {
+    const page = await env.ARTIFACTS.list({ limit: 200, ...(cursor ? { cursor } : {}) });
+    names.push(...(page?.repos ?? []).map((r: any) => String(r.name)).filter((n: string) => n.startsWith(prefix)));
+    cursor = page?.cursor;
+    if (!cursor) break;
+  }
+  return names;
+}
+
+async function deleteMedia(env: Env, team: string): Promise<number> {
+  let deleted = 0;
+  for (let cursor: string | undefined; ; ) {
+    const page = await env.MEDIA.list({ prefix: `teams/${team}/`, limit: 1000, ...(cursor ? { cursor } : {}) });
+    const keys = page.objects.map((o: { key: string }) => o.key);
+    if (keys.length) await env.MEDIA.delete(keys);
+    deleted += keys.length;
+    if (!page.truncated) return deleted;
+    cursor = page.cursor;
+  }
+}
+
 export const TEAM_HANDLERS: Record<string, Handler> = {
   async list_people(_args, env, person) {
     const rows = await added(env);
@@ -470,5 +513,56 @@ export const TEAM_HANDLERS: Record<string, Handler> = {
     if (!joined.length) throw new Error(`Nobody on this team has the email ${email}. list_people shows everyone.`);
     await accessDb(env).prepare("UPDATE members SET self_serve = 0, updated_at = ? WHERE lower(email) = ? AND self_serve = 1").bind(at, email).run();
     return `${joined[0].name ?? email} <${email}> no longer has access: ${joined.length} connector(s) that joined from the landing page stop working now. What they logged stays, credited to them.`;
+  },
+
+  async delete_team(args, env, person) {
+    if (env.TEAM_ID || !isAdmin(person)) throw new Error("Only an admin on this server's own team can delete a team.");
+    const db = accessDb(env);
+    const team = String(args?.team ?? "").trim().toLowerCase();
+    if (!team) {
+      const { results } = await db
+        .prepare(
+          `SELECT t.id, t.name, t.created_at, count(c.key_hash) AS people FROM teams t
+           LEFT JOIN ${TEAM_TABLE} c ON c.team_id = t.id AND c.removed_at IS NULL GROUP BY t.id ORDER BY t.created_at`,
+        )
+        .all();
+      if (!results?.length) return "No teams on this server besides its own.";
+      return results.map((t: any) => `- ${t.id} · ${t.name || "(no name yet)"} · started ${String(t.created_at).slice(0, 10)} · ${t.people} connector(s)`).join("\n");
+    }
+    if (!TEAM_ID.test(team)) throw new Error(`"${team}" isn't a team id. Call delete_team without team to list them.`);
+    const row: any = await first(env, "SELECT id, name FROM teams WHERE id = ?", team);
+    if (!row) throw new Error(`No team ${team} on this server. Call delete_team without team to list them.`);
+    const label = `${row.name || "(no name yet)"} (${team})`;
+    const repos = await teamRepos(env, team);
+    const members: any = await first(env, `SELECT count(*) AS n FROM ${TEAM_TABLE} WHERE team_id = ? AND removed_at IS NULL`, team);
+
+    if (String(args?.confirm ?? "").trim().toLowerCase() !== team) {
+      return [
+        `Deleting ${label} would:`,
+        `- stop its ${members?.n ?? 0} connector(s) from working;`,
+        `- delete its ${repos.length} repo(s)${repos.length ? `: ${repos.join(", ")}` : ""};`,
+        `- erase its database (contacts, conversations, locations) and every file under teams/${team}/.`,
+        `It can't be undone. To go ahead, call delete_team again with team and confirm both set to ${team}.`,
+      ].join("\n");
+    }
+
+    // Lock the connectors out first; the teams row goes last, so a failed run can be repeated.
+    const at = new Date().toISOString();
+    await db.prepare(`UPDATE ${TEAM_TABLE} SET removed_by = ?, removed_at = ? WHERE team_id = ? AND removed_at IS NULL`).bind(person.name, at, team).run();
+    for (const name of repos) await env.ARTIFACTS.delete(name);
+    const files = await deleteMedia(env, team);
+    await (env.TEAM.getByName(team) as unknown as { purge(): Promise<void> }).purge();
+    // Only the key hashes stay, removed, so old URLs don't start a fresh team.
+    await db.batch([
+      db
+        .prepare(
+          `UPDATE ${TEAM_TABLE} SET name = '', email = '', emails = NULL, crm_email = NULL, company = NULL, company_url = NULL,
+           ideal_customer = NULL, team_id = NULL, removed_at = COALESCE(removed_at, ?) WHERE team_id = ?`,
+        )
+        .bind(at, team),
+      db.prepare("DELETE FROM teams WHERE id = ?").bind(team),
+    ]);
+    console.log(JSON.stringify({ msg: "team deleted", team, by: person.email, repos: repos.length, files }));
+    return `Deleted ${label}: ${members?.n ?? 0} connector(s) revoked, ${repos.length} repo(s) and ${files} file(s) deleted, and its database erased.`;
   },
 };
