@@ -44,9 +44,12 @@ code is right, fix the README. If the README is right, fix the code.
    people using it. For example: `fix(event-hog): Stop a retry from dropping a teammate's note`.
 4. If a change alters what the server guarantees, update that README
    section in the same pull request.
-5. Open a pull request against `main` here. Say what you tested, and how.
-   That means a deployed Worker and a real Claude chat, because local
-   `wrangler dev` is broken (see Known gaps).
+5. Open a pull request against `main` here. Say what you tested, and how:
+   ideally a deployed Worker and a real Claude chat. For anything touching
+   access or teams, also run `scripts/isolation-test.mjs` against
+   `wrangler dev` with `SELF_SERVE: "teams"` (README: Developing).
+6. Add a file to `changelog/` (`YYYY-MM-DD_NN.md`, same front matter as the
+   others) saying what changed for the people using it.
 
 Bigger changes start as a spec in `context-v/specs/` and get discussed
 before anyone writes code. The CRM work is the example.

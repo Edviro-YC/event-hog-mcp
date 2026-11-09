@@ -26,8 +26,9 @@
 // verify, alt text, and commentary kept apart from the transcription.
 
 import type { Env, Front, Handler, Person, Workspace } from "./index";
-import { DIR, open, read, walk, write, parseFront, renderFront, slug, now, people, memberPerson } from "./index";
+import { DIR, open, read, walk, write, parseFront, renderFront, slug, now } from "./index";
 import { pendingIn } from "./brand";
+import { connectorKey, personForCaptureToken } from "./team";
 
 const ROOT = "slides";
 const MAX_BYTES = 4_000_000;
@@ -45,15 +46,6 @@ const ev = (args: any, env: Env) => (args?.event ? String(args.event) : env.DEFA
 export async function captureToken(key: string): Promise<string> {
   const hash = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(`${key}:capture`));
   return [...new Uint8Array(hash)].map((b) => b.toString(16).padStart(2, "0")).join("").slice(0, 32);
-}
-
-export async function personForToken(env: Env, token: string): Promise<{ key: string; person: Person } | null> {
-  for (const [key, person] of Object.entries(people(env))) if ((await captureToken(key)) === token) return { key, person: { ...person, key } };
-  try {
-    const row = await env.CRM.prepare("SELECT * FROM members WHERE capture_token = ?").bind(token).first();
-    if (row) return { key: String(row.key), person: memberPerson(row) };
-  } catch {}
-  return null;
 }
 
 function folderFor(session: string, date: string): string {
@@ -142,7 +134,7 @@ export async function addSlides(
   const paths: string[] = [];
   for (const [i, img] of images.entries()) {
     const nn = String(taken + i + 1).padStart(2, "0");
-    const key = `${event}/${folder}/${nn}-${crypto.randomUUID().slice(0, 12)}.${img.ext}`;
+    const key = `${env.MEDIA_PREFIX ?? ""}${event}/${folder}/${nn}-${crypto.randomUUID().slice(0, 12)}.${img.ext}`;
     await env.MEDIA.put(key, img.bytes, { httpMetadata: { contentType: img.contentType }, customMetadata: { captured_by: person.name, event } });
     const imageUrl = `${env.PUBLIC_URL || origin}/media/${key}`;
     const base = `${folder}/${nn}`;
@@ -172,7 +164,7 @@ export async function addSlides(
 // ---------------------------------------------------------------- capture page
 
 export async function handleCapture(request: Request, env: Env, token: string): Promise<Response> {
-  const who = await personForToken(env, token);
+  const who = await personForCaptureToken(env, token);
   if (!who) return new Response("Unknown capture link", { status: 401 });
   const url = new URL(request.url);
 
@@ -363,8 +355,7 @@ export const SLIDE_HANDLERS: Record<string, Handler> = {
   },
 
   async slide_capture_link(args, env, person) {
-    const key = person.key;
-    if (!key) throw new Error("Couldn't find this connector's key.");
+    const key = connectorKey(person);
     const q = new URLSearchParams();
     if (args?.session) q.set("session", String(args.session));
     if (args?.event) q.set("event", String(args.event));

@@ -3,7 +3,7 @@ title: "event-hog Data Policy"
 lede: "Your team's contacts, notes and photos are stored so you can use them. Nobody behind event-hog reads them or makes money from them."
 publish: true
 date_created: 2026-10-28
-date_modified: 2026-10-28
+date_modified: 2026-11-08
 date_authored_initial_draft: 2026-10-28
 date_authored_current_draft: 2026-10-28
 date_authored_final_draft:
@@ -50,7 +50,10 @@ Cloudflare (Artifacts, D1, R2) so your team can use it.
    the people in it, add it to any other product or database, or use it to
    train or tune AI models.
 3. **It stays your team's.** A connector link reaches only its own team's
-   data. We don't combine one team's data with another's.
+   data. Each team signed up on our deployment has its own database, its
+   own workspaces and its own folder of files, and the code refuses any
+   reach into another team's. We don't combine one team's data with
+   another's.
 
 **The only exceptions:**
 - **You ask us to help** (something is broken and you want us to look).
@@ -77,7 +80,10 @@ Cloudflare (Artifacts, D1, R2) so your team can use it.
 
 Ask, and we'll delete your team's workspaces, files and database records
 from our account. Before we do, we can hand you a copy: the workspaces are
-plain git repos and the contacts are a CSV.
+plain git repos and the contacts are a CSV. Deleting a team erases all of
+it at once and stops every connector link on the team from working. We
+keep only a scrambled form of each old link (a hash, no names or emails),
+so it can't be reused.
 
 ## Changes
 

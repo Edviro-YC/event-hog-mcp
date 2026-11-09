@@ -114,10 +114,20 @@ that phase's playbook:
   writes to a CRM itself); follow-up emails (`draft-follow-up-emails`); and
   Origami for sending at scale.
 
-A key the server hasn't seen becomes a new member (the `members` table in
-D1) on its first call. Keys in the `PEOPLE` secret keep working and win over
-the table. There's no org management yet: everyone on a deployment shares
-one workspace and one database.
+What a key the server hasn't seen does depends on `SELF_SERVE`:
+
+- **`"teams"`** (the deployment we run): it starts a new, private team, and
+  that person is its admin. They invite teammates with `add_person`. Each
+  team has its own events, contacts, slides and database, and no other team
+  on the server can see them. The deployment's own team (the "home" team,
+  Edviro on ours) keeps its data where it always was.
+- **`"open"`**: it joins the home team (the `members` table in D1).
+- **Unset**: the server is invite-only. People come from an admin's
+  `add_person` (or the `PEOPLE` secret), and a landing-page key gets a 401.
+
+One connector URL reaches one team. Someone with a team of their own who is
+invited to another gets a second URL; both keep working and nothing is
+merged.
 
 ## Three ways to run it
 
@@ -193,11 +203,33 @@ On every tool call the Worker clones the event repo into memory
 teammate's push lands first, it retries from a fresh clone (up to 5 times).
 Writes add files or append to them, so a retry never clobbers anything.
 
+### Teams
+
+The Worker resolves the connector key against the registry in D1
+(`connector_people` and `teams`). The home team's calls run in the Worker,
+against `agnostic-crm` and unprefixed repos, as above. Every other team's
+calls, slide captures and uploads go to that team's Durable Object (`Team`,
+[`src/team-do.ts`](src/team-do.ts)), one per team, which runs the same tools
+against:
+
+- its own SQLite database, with the CRM schema from `migrations/` (bundled
+  into `src/migrations.generated.ts` at build time);
+- repos named `tm-<team id>-<event>`, plus `tm-<team id>-kit` for its
+  settings and brand (made on first write; until then the bundled kit is
+  used);
+- media under `teams/<team id>/` in the bucket.
+
+`open()` refuses any repo outside the caller's team, so a team can't name
+another team's event, and the home team can't name a `tm-` repo. Teams are
+capped at 20 events and 25 connectors, and at most `MAX_NEW_TEAMS_PER_DAY`
+(default 50) new teams start per day. `enrich_people`, which spends the
+deployment's own context.dev credits, works only for the home team.
+
 ### Routes
 
 | Path | What |
 |---|---|
-| `GET /` | The landing page: copy the connect prompt with a personal link |
+| `GET /` | The landing page: copy the connect prompt with a personal link (an invite-only notice unless `SELF_SERVE` is set) |
 | `POST /mcp/<key>` | The MCP endpoint (JSON-RPC over HTTP). The key identifies the person. Opened in a browser, it explains itself instead |
 | `GET /media/<key>` | Public files from the bucket. HTML is served with a CSP sandbox: no scripts, no forms |
 | `/capture/<token>` | A person's camera page for slide photos. The token is derived from their key |
@@ -248,6 +280,11 @@ reply with two or three of them, so nobody has to know the tool list.
 `whoami`, `list_files`, `read_file`, `search`, `recent_activity`,
 `append_to_file`, `add_note`.
 
+**Team:** `list_people` (everyone on the caller's team, never their keys),
+and for admins `add_person` (makes a teammate's connector URL) and
+`remove_person`. Admins on the home team also get `delete_team` (see
+Deleting a team).
+
 **Contacts and CRM:** `log_contact` (appends to an existing contact matched by
 email, then name and company), `contacts_csv`, `query_crm`, `relate_orgs`,
 `define_location`, `link_location`, `who_is_in`, `crm_queue`,
@@ -287,7 +324,20 @@ some is an instruction to the model (the server's `instructions` and the
 skills), which a model can fail to follow.
 
 **Enforced in code:**
-- Every write is a commit authored as the caller (`PEOPLE` maps key → name and email).
+- Every write is a commit authored as the caller (the registry maps key → name and email).
+- A team's tools only reach its own database, `tm-<id>-` repos and
+  `teams/<id>/` media; the home team can't reach any team's either.
+  `scripts/isolation-test.mjs` checks this against a running server.
+- Only admins can add or remove teammates: whoever started a team, people
+  marked `"admin": true` in `PEOPLE`, or landing-page connectors whose
+  `members.admin` is 1 (set by whoever runs the deployment, with
+  `wrangler d1 execute`; no tool writes it). People added from chat are never
+  admins, and can't be given an email already on their team. Their keys are
+  stored only as hashes, and `list_people` never shows a key.
+- `query_crm` refuses to read `connector_people`, `members` and `teams`.
+- A key from the landing page works only while `SELF_SERVE` is set. A
+  profile saved with `save_my_profile` never grants access by itself, so
+  taking someone out of `PEOPLE`, or `remove_person`, locks them out.
 - Contact and note writes add or append; existing contact fields are filled
   when blank, never overwritten. Slide notes that already exist get "another
   take", not a replacement.
@@ -318,10 +368,22 @@ team can use it, never looked at or used commercially.
 
 - **The connector URL is the credential.** Anyone with `…/mcp/<key>` acts as
   that person. There is no sign-in yet. Treat the URL like a password. Keys
-  are stored as written, in the `PEOPLE` secret or the `members` table.
-- **Anyone can join.** The landing page mints a key for whoever opens it, and
-  every member reads and writes the same workspace and database. Fine for
-  one team; not for strangers.
+  are stored as written in the `PEOPLE` secret and the `members` table;
+  `connector_people` (`add_person`, team signups) keeps only a hash.
+- **Joining is closed unless you open it.** Without `SELF_SERVE`, only
+  `PEOPLE` and `add_person` grant access, and a key from the landing page
+  gets a 401. With `"teams"`, a stranger's key starts a team of its own and
+  sees nothing else. With `"open"`, it joins the home team and its
+  workspace: fine for one team, not for strangers.
+- **Everyone on a team sees every event in it.** There's no per-event
+  membership: anyone on a team can read and write all of its events,
+  contacts included. `list_people` shows them all.
+- **Teams are separated by code, not by account.** They share one Worker,
+  one Artifacts namespace and one bucket, so whoever runs the deployment can
+  reach every team's data (see [DATA-POLICY.md](DATA-POLICY.md)).
+- **`add_person` returns the new URL in the chat.** It's shown once and not
+  stored, but it stays in that conversation's history. `remove_person`
+  revokes it.
 - **`/media/` is public.** Anyone with a file's URL can open it. Keys the server writes
   include random parts, so its URLs can't be guessed, but don't put anything there you
   wouldn't share by link.
@@ -330,9 +392,9 @@ team can use it, never looked at or used commercially.
 
 ## Known gaps (for 0.1.0)
 
-- `npx wrangler dev` fails locally: `src/index.ts` exports plain constants
-  (`DIR`, `CONTACTS_CSV`), which the local runtime treats as handlers.
-  Production accepts them.
+- A connector reaches one team. Nobody can switch a connector between teams,
+  merge two teams, or delete their own team from chat (the operator does it,
+  on request).
 - "CRM-agnostic" is half true: the database model is ours, but the sync step
   (`hubspot_status`, `crm_queue`, `export_hubspot_csv`) only knows HubSpot.
 - Every call clones the whole event repo. Fine for one event's worth of
@@ -366,19 +428,59 @@ npx wrangler d1 migrations apply agnostic-crm --remote
    settings: copy `kit/config/skills.example.json` to `config/skills.json`
    and fill it in. (Skills and the event template are bundled; they don't
    need pushing.)
-3. Optional: set named people with `npx wrangler secret put PEOPLE`, a JSON
-   map of connector key → `{ "name", "email", "emails"?, "crm_email"? }`
-   (keys from `openssl rand -hex 24`). Without it, everyone joins from the
-   landing page.
+3. Set the people: `npx wrangler secret put PEOPLE`, a JSON map of connector
+   key → `{ "name", "email", "emails"?, "crm_email"?, "admin"? }` (keys from
+   `openssl rand -hex 24`). Mark at least one person `"admin": true` so they
+   can add teammates from chat (`add_person`), which stores them in D1
+   instead of this secret. (`PEOPLE` can't be read back, so to make an admin
+   later without re-entering it, a connector that joined from the landing
+   page can be marked instead: `UPDATE members SET admin = 1 WHERE
+   self_serve = 1 AND email = '…'` with `npx wrangler d1 execute <db> --remote`.)
 4. Optional: `npx wrangler secret put CONTEXT_DEV_API_KEY` (a key from the
    [context.dev dashboard](https://www.context.dev/dashboard/api-keys)) to
    turn on `enrich_people`.
-5. `npx wrangler deploy` (the build step bundles `kit/`).
-6. Send people to `https://<your worker>/` to copy the connect prompt.
+5. Optional: to let people start from the landing page, set `SELF_SERVE` in
+   `vars`: `"teams"` gives each signup a private team of its own, `"open"`
+   adds them to yours. Leave it out and the server is invite-only.
+6. `npx wrangler deploy` (the build step bundles `kit/`; the first deploy
+   also creates the `Team` Durable Object class from `migrations` in
+   `wrangler.jsonc`).
+7. Each person adds `https://<your worker>/mcp/<their key>` in Claude as a
+   custom connector. (With `SELF_SERVE` set, they can instead copy the
+   connect prompt from `https://<your worker>/`.)
+
+### Deleting a team
+
+When a team asks to leave, an admin on the home team does it from chat:
+
+1. `delete_team` with no arguments lists the teams: id, name, when it
+   started, and how many connectors it has.
+2. `delete_team` with `team` set shows what would go: its connectors, its
+   `tm-<id>-*` repos, its database and its `teams/<id>/` files.
+3. If they want a copy first, export it before deleting: `contacts_csv` from
+   one of their connectors, or clone the `tm-<id>-*` repos.
+4. `delete_team` with `team` and `confirm` both set to the id deletes it. Its
+   connectors stop working, the repos, files and Durable Object are erased,
+   and only the connectors' key hashes stay, marked removed, so an old URL
+   can't start a new team. If a step fails, run it again: the team stays
+   listed until everything is gone.
 
 Keep a deployment's real values (D1 id, URL) in its own
 `wrangler.<name>.jsonc`, which git ignores, and deploy with
 `npx wrangler deploy -c wrangler.<name>.jsonc`.
+
+### Deploy on every push
+
+`.github/workflows/deploy-worker.yml` applies D1 migrations and deploys
+whenever `main` changes code, skills or migrations. It runs only in the repo
+named in its `if:` (Edviro's fork). That repo needs three Actions secrets:
+
+- `CLOUDFLARE_API_TOKEN`: a token from the "Edit Cloudflare Workers"
+  template, plus D1 Edit.
+- `CLOUDFLARE_ACCOUNT_ID`.
+- `WRANGLER_CONFIG_B64`: the deployment's `wrangler.<name>.jsonc`, base64.
+  After changing that file, update it with
+  `base64 -i wrangler.<name>.jsonc | gh secret set WRANGLER_CONFIG_B64`.
 
 `seeds/` has the 7x24 Exchange Fall 2026 instance as an example seed.
 
@@ -386,7 +488,12 @@ Keep a deployment's real values (D1 id, URL) in its own
 
 ```bash
 npm run check    # tsc --noEmit
+npx wrangler dev -c wrangler.<name>.jsonc
+node scripts/isolation-test.mjs http://localhost:8787 <home admin key>   # with SELF_SERVE "teams"
 ```
+
+The isolation script starts two teams, checks neither can reach the other's
+data (nor the home team theirs), then deletes both with `delete_team`.
 
 Commit messages follow the
 [Lossless git conventions](https://github.com/lossless-group/lossless-agent-skills/tree/main/git-conventions).

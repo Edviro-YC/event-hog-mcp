@@ -2,7 +2,7 @@
 {
   "$schema": "./node_modules/wrangler/config-schema.json",
   "name": "event-hog",
-  "main": "src/index.ts",
+  "main": "src/worker.ts",
   "compatibility_date": "2026-10-25",
   "compatibility_flags": ["nodejs_compat"],
   // Skills and the event template ship inside the Worker (src/kit.generated.ts).
@@ -26,6 +26,10 @@
       "migrations_dir": "migrations"
     }
   ],
+  // One Durable Object per team other than yours (the home team): its own
+  // SQLite CRM database, and where its tool calls run. Used once SELF_SERVE is "teams".
+  "durable_objects": { "bindings": [{ "name": "TEAM", "class_name": "Team" }] },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Team"] }],
   "vars": {
     // Which event repo tools use when the caller doesn't name one.
     "DEFAULT_EVENT": "<yyyy-mm-event-slug>",
@@ -40,9 +44,19 @@
     // Optional: send GET / somewhere else (eventhog.cc does this for the deployment
     // we run). Leave it out and the Worker serves its own copy-a-prompt page.
     // "HOME_URL": "https://eventhog.cc/#connect"
+    // Optional: who can start with a link from the landing page. "teams": each
+    // signup gets a private team of their own and invites teammates with
+    // add_person. "open": signups join your team. Leave it out and only
+    // add_person grants access.
+    // "SELF_SERVE": "teams",
+    // "MAX_NEW_TEAMS_PER_DAY": "50",
+    // Optional: your team's name, as whoami and list_people say it.
+    // "HOME_TEAM_NAME": "Acme"
   }
   // Secrets (wrangler secret put):
-  //   PEOPLE               optional JSON map of connector key -> { "name": "...", "email": "..." }
+  //   PEOPLE               optional, for a first admin: JSON map of connector key ->
+  //                        { "name": "...", "email": "...", "admin"?: true }. Copied into the
+  //                        database on the first request; delete it after that.
   //   ACCOUNT_ID           only used to build a remote URL if info() doesn't return one
   //   CONTEXT_DEV_API_KEY  optional; turns on enrich_people
 }

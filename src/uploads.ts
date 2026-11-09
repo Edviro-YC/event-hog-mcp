@@ -9,7 +9,8 @@
 //
 // The URL is stateless and signed: the payload names the person (by their
 // capture token, never the connector key), the event, the kind of file and
-// an expiry, and is signed with that person's connector key. Single use is a
+// an expiry, and is signed with the SHA-256 of that person's connector key
+// (see team.ts: people added from chat have only the hash stored). Single use is a
 // marker object in the MEDIA bucket, written when the link is spent.
 //
 // Slides become slide stubs exactly like camera captures, so slides,
@@ -18,8 +19,9 @@
 // contact.
 
 import type { Env, Handler, Person } from "./index";
-import { slug, now, write } from "./index";
-import { addSlides, captureToken, personForToken } from "./slides";
+import { slug, now, write, repoFor } from "./index";
+import { addSlides, captureToken } from "./slides";
+import { connectorKey, personForCaptureToken, sha256 } from "./team";
 
 const TTL_SECONDS = 15 * 60;
 const SLIDE_MAX = 4_000_000; // view_slide returns the image inline; keep it small enough to show.
@@ -58,8 +60,8 @@ interface Ticket {
 const b64url = (bytes: Uint8Array) => btoa(String.fromCharCode(...bytes)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 const unb64url = (s: string) => Uint8Array.from(atob(s.replace(/-/g, "+").replace(/_/g, "/")), (c) => c.charCodeAt(0));
 
-async function sign(key: string, payload: string): Promise<string> {
-  const k = await crypto.subtle.importKey("raw", new TextEncoder().encode(`${key}:upload`), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+async function sign(keyHash: string, payload: string): Promise<string> {
+  const k = await crypto.subtle.importKey("raw", new TextEncoder().encode(`${keyHash}:upload`), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
   return b64url(new Uint8Array(await crypto.subtle.sign("HMAC", k, new TextEncoder().encode(payload))));
 }
 
@@ -79,10 +81,16 @@ async function redeem(env: Env, token: string): Promise<{ ticket: Ticket; person
   } catch {
     return "Not an upload link.";
   }
-  const who = await personForToken(env, ticket.p);
-  if (!who || !sameString(await sign(who.key, payload), mac)) return "This upload link isn't valid.";
+  const who = await personForCaptureToken(env, ticket.p);
+  if (!who || !sameString(await sign(who.keyHash, payload), mac)) return "This upload link isn't valid.";
   if (Date.now() / 1000 > ticket.x) return "This upload link expired. Ask Claude for a new one.";
   return { ticket, person: who.person };
+}
+
+/** The team a valid upload link belongs to, unless it's the home team's. */
+export async function uploadTeam(env: Env, token: string): Promise<string | undefined> {
+  const redeemed = await redeem(env, token);
+  return typeof redeemed === "string" ? undefined : redeemed.person.team;
 }
 
 const json = (body: unknown, status = 200) => Response.json(body, { status });
@@ -134,7 +142,7 @@ export async function handleUpload(request: Request, env: Env, token: string): P
       return json({ ok: true, saved, summary, next: "Back in Claude: view_slide, then save_slide_notes." });
     }
     const t = now(env);
-    const key = `${ticket.ev}/uploads/${ticket.k}/${t.date}-${ticket.base}-${crypto.randomUUID().slice(0, 12)}.${spec.ext}`;
+    const key = `${env.MEDIA_PREFIX ?? ""}${ticket.ev}/uploads/${ticket.k}/${t.date}-${ticket.base}-${crypto.randomUUID().slice(0, 12)}.${spec.ext}`;
     await env.MEDIA.put(key, bytes, { httpMetadata: { contentType: spec.type }, customMetadata: { uploaded_by: person.name, event: ticket.ev, kind: ticket.k } });
     const url = `${env.PUBLIC_URL || origin}/media/${key}`;
     return json({ ok: true, url, kb: Math.round(bytes.length / 1024), next: "Put this URL in the contact or note it belongs to." });
@@ -176,8 +184,7 @@ export const UPLOAD_HANDLERS: Record<string, Handler> = {
     if (!TYPES[f]) throw new Error(`Can't take a .${f || "?"} file. Allowed: ${Object.keys(TYPES).join(", ")}.`);
     if (kind === "slide" && !SLIDE_EXTS.includes(f)) throw new Error("A slide must be JPEG, PNG or WebP. Convert it first (Pillow), then ask again with the new name.");
 
-    const key = person.key;
-    if (!key) throw new Error("Couldn't find this connector's key.");
+    const key = connectorKey(person);
 
     const ticket: Ticket = {
       p: await captureToken(key),
@@ -188,6 +195,7 @@ export const UPLOAD_HANDLERS: Record<string, Handler> = {
       f,
       base: slug(filename.replace(/\.[^.]+$/, "")).slice(0, 40) || kind,
     };
+    repoFor(env, ticket.ev);
     if (kind === "slide") {
       if (args?.session) ticket.s = String(args.session).slice(0, 200);
       if (args?.speaker) ticket.sp = String(args.speaker).slice(0, 200);
@@ -196,7 +204,7 @@ export const UPLOAD_HANDLERS: Record<string, Handler> = {
     const payload = b64url(new TextEncoder().encode(JSON.stringify(ticket)));
     const base = env.PUBLIC_URL;
     if (!base) throw new Error("PUBLIC_URL isn't set. Set it in wrangler.jsonc vars to this Worker's public URL and redeploy.");
-    const url = `${base}/upload/${payload}.${await sign(key, payload)}`;
+    const url = `${base}/upload/${payload}.${await sign(await sha256(key), payload)}`;
     return [
       `Upload link for ${person.name}: one use, expires in 15 minutes, ${kind}, .${f}.`,
       "",

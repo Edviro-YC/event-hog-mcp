@@ -122,6 +122,9 @@ export const ENRICH_TOOLS = [
 
 export const ENRICH_HANDLERS: Record<string, Handler> = {
   async enrich_people(args, env, person) {
+    if (env.TEAM_ID) {
+      return "Web lookups (enrich_people) run only for this server's own team, since they spend its paid credits. Use web search for these people instead. For lookups of your own, deploy your own event-hog with your own context.dev key (README: Deploy your own).";
+    }
     const given = (Array.isArray(args?.people) ? args.people : [])
       .map((x: any) => ({ name: String(x?.name ?? "").trim(), company: String(x?.company ?? "").trim() }))
       .filter((x: any) => x.name);

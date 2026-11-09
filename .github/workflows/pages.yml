@@ -21,6 +21,8 @@ concurrency:
 
 jobs:
   build:
+    # eventhog.cc is published from upstream; forks don't need their own copy.
+    if: github.repository == 'lossless-group/event-hog-mcp'
     runs-on: ubuntu-latest
     defaults:
       run:
