@@ -8,7 +8,8 @@
   "scripts": {
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
-    "check": "tsc --noEmit"
+    "bundle-kit": "node scripts/bundle-kit.mjs",
+    "check": "node scripts/bundle-kit.mjs && tsc --noEmit"
   },
   "dependencies": {
     "isomorphic-git": "1.44.4"

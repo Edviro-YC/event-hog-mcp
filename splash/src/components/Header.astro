@@ -1,0 +1,98 @@
+---
+import ModeToggle from './ModeToggle.astro';
+import SearchBox from './SearchBox.astro';
+import { REPO_URL } from '@lib/seo';
+const base = import.meta.env.BASE_URL;
+---
+
+<header class="site-header">
+  <div class="container site-header__inner">
+    <a class="site-header__brand" href={base}>
+      <img class="brand__mark" src={`${base}favicon.svg`} alt="" width="36" height="36" />
+      <span class="brand__name">event-hog</span>
+    </a>
+    <nav class="site-header__nav" aria-label="Primary">
+      <a href={`${base}#program`}>Program</a>
+      <a href={`${base}#passes`}>Passes</a>
+      <a href={`${base}#floor-plan`}>Floor plan</a>
+      <a href={`${base}changelog/`}>Changelog</a>
+      <a href={`${base}context-v/`}>Context</a>
+      <a href={REPO_URL} target="_blank" rel="noopener">GitHub</a>
+    </nav>
+    <div class="site-header__actions">
+      <SearchBox compact />
+      <ModeToggle />
+    </div>
+  </div>
+</header>
+
+<style>
+  .site-header {
+    position: sticky;
+    top: 0;
+    z-index: 50;
+    background: var(--color-bg);
+    border-bottom: 3px solid var(--color-border-strong);
+  }
+
+  .site-header__inner {
+    display: flex;
+    align-items: center;
+    gap: var(--space-6);
+    height: 62px;
+  }
+
+  .site-header__actions {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-3);
+  }
+
+  .site-header__brand {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-3);
+    color: var(--color-text);
+    font-family: var(--font__display);
+    font-weight: 900;
+    font-size: 1.6rem;
+    letter-spacing: 0.01em;
+    text-transform: lowercase;
+    line-height: 1;
+    white-space: nowrap;
+  }
+  .site-header__brand:hover { text-decoration: none; }
+
+  .brand__mark {
+    width: 36px;
+    height: 36px;
+    flex-shrink: 0;
+  }
+
+  .site-header__nav {
+    display: flex;
+    align-items: center;
+    gap: var(--space-5);
+    margin-left: auto;
+    font-family: var(--font__mono);
+    font-size: 0.7rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+  .site-header__nav a {
+    color: var(--color-text-soft);
+  }
+  .site-header__nav a:hover {
+    color: var(--color-accent-warm);
+    text-decoration: none;
+  }
+
+  @media (max-width: 960px) {
+    .site-header__nav { gap: var(--space-3); }
+    .site-header__nav a:nth-child(-n+3) { display: none; }
+  }
+  @media (max-width: 640px) {
+    .site-header__nav { display: none; }
+    .site-header__actions { margin-left: auto; }
+  }
+</style>

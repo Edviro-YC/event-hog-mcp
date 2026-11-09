@@ -1,0 +1,12 @@
+# Splash is its own self-contained Astro app — it isn't a workspace root with
+# member packages. The empty `packages` list is required by pnpm 10's schema
+# whenever this file exists; without it, `pnpm <script>` errors with
+# "packages field missing or empty" because pnpm tries to read workspace
+# config and fails. Keeping the file (vs deleting it) preserves the
+# `onlyBuiltDependencies` approval below so esbuild/sharp install scripts
+# run in CI without an interactive prompt.
+packages: []
+
+onlyBuiltDependencies:
+  - esbuild
+  - sharp

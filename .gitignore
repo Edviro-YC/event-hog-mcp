@@ -2,3 +2,9 @@ node_modules/
 .wrangler/
 .dev.vars
 dist/
+.env
+.env.*
+!.env.example
+src/kit.generated.ts
+# A deployment's own config (real D1 ids, its URL): wrangler.<name>.jsonc
+wrangler.*.jsonc

@@ -1,39 +1,49 @@
-// The team: who can use this connector, read from two places.
+// The team: who can use this connector, read from three places.
 //
 // - PEOPLE, the Worker secret (connector key -> person), set with wrangler.
 //   People marked "admin": true there can add and remove teammates from chat.
 // - connector_people in agnostic-crm (D1), written by add_person. A Worker
 //   can't change its own secrets, so people added at runtime live here. Only
-//   hashes of their keys are kept, and query_crm refuses to read the table.
+//   hashes of their keys are kept.
+// - members rows with self_serve = 1: connectors that joined from the landing
+//   page. New ones join only while SELF_SERVE is "open". The same table holds
+//   the profile anyone saves with save_my_profile; a profile alone grants
+//   nothing, so taking someone out of PEOPLE or connector_people locks them out.
 //
-// Upload links are signed with the SHA-256 of the connector key, which both
-// sources can produce without the raw key on hand.
+// query_crm refuses to read connector_people and members (members holds keys
+// as written). Upload links are signed with the SHA-256 of the connector key,
+// which every source can produce.
 
 import type { Env, Handler, Person } from "./index";
 import { people, identities } from "./index";
 import { captureToken } from "./slides";
 
 export const TEAM_TABLE = "connector_people";
+/** Tables query_crm must not read: who has access, and keys as written. */
+export const ACCESS_TABLES = [TEAM_TABLE, "members"];
+
+// Keys the landing page mints in the browser: 24 random bytes as hex.
+const SELF_SERVE_KEY = /^[a-f0-9]{48}$/;
+
+export const selfServeOpen = (env: Env) => env.SELF_SERVE === "open";
+
+/** A key in the landing page's format, which only works while self-serve is open. */
+export const looksSelfServe = (key: string) => SELF_SERVE_KEY.test(key);
 
 export async function sha256(s: string): Promise<string> {
   const hash = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(s));
   return [...new Uint8Array(hash)].map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
-// The key a request came in on, kept off the Person object so it can't end up
-// in a commit, a file, or a tool's output by accident.
-const KEYS = new WeakMap<Person, string>();
-
 export function connectorKey(person: Person): string {
-  const key = KEYS.get(person);
-  if (!key) throw new Error("Couldn't find this connector's key.");
-  return key;
+  if (!person.key) throw new Error("Couldn't find this connector's key.");
+  return person.key;
 }
 
-type Row = { key_hash: string; name: string; email: string; emails: string | null; crm_email: string | null; added_by: string; added_at: string };
+type Row = { key_hash: string; name: string; email: string; emails: string | null; crm_email: string | null; added_by: string; added_at: string; removed_at?: string | null };
 
 function fromRow(r: Row): Person {
-  const p: Person = { name: r.name, email: r.email };
+  const p: Person = { name: r.name, email: r.email, via: "added" };
   try {
     const emails = JSON.parse(r.emails ?? "[]");
     if (Array.isArray(emails) && emails.length) p.emails = emails.map(String);
@@ -42,7 +52,30 @@ function fromRow(r: Row): Person {
   return p;
 }
 
-// Until migration 0006 is applied there's no table: treat that as nobody added.
+export function memberPerson(row: any): Person {
+  const key = String(row.key);
+  return {
+    key,
+    name: row.name || `Guest ${key.slice(0, 4)}`,
+    email: row.email || `guest-${key.slice(0, 8)}@eventhog.invalid`,
+    company: row.company || undefined,
+    company_url: row.company_url || undefined,
+    ideal_customer: row.ideal_customer || undefined,
+    guest: !row.name,
+    via: "self-serve",
+  };
+}
+
+// The profile fields a members row adds to someone from PEOPLE or connector_people.
+function profile(row: any): Partial<Person> {
+  const out: Partial<Person> = {};
+  if (row?.company) out.company = row.company;
+  if (row?.company_url) out.company_url = row.company_url;
+  if (row?.ideal_customer) out.ideal_customer = row.ideal_customer;
+  return out;
+}
+
+// Until migration 0008 is applied there's no table: treat that as nobody added.
 async function added(env: Env, where = "", ...binds: unknown[]): Promise<Row[]> {
   try {
     const { results } = await env.CRM.prepare(
@@ -56,20 +89,54 @@ async function added(env: Env, where = "", ...binds: unknown[]): Promise<Row[]> 
   }
 }
 
+async function first(env: Env, sql: string, ...binds: unknown[]): Promise<any | null> {
+  try {
+    return await env.CRM.prepare(sql).bind(...binds).first();
+  } catch {
+    return null;
+  }
+}
+
+async function selfServeMembers(env: Env): Promise<any[]> {
+  try {
+    const { results } = await env.CRM.prepare("SELECT * FROM members WHERE self_serve = 1 ORDER BY created_at").all();
+    return results ?? [];
+  } catch {
+    return [];
+  }
+}
+
+// PEOPLE first, then connector_people (a removed row locks the key out), then
+// a self-serve member. An unknown key in the landing page's format becomes a
+// new member only while SELF_SERVE is "open".
 export async function personForKey(env: Env, key: string): Promise<Person | null> {
+  const row = await first(env, "SELECT * FROM members WHERE key = ?", key);
   const fromSecret = people(env)[key];
-  const row = fromSecret ? null : (await added(env, " AND key_hash = ?", await sha256(key)))[0];
-  const person = fromSecret ? { ...fromSecret } : row ? fromRow(row) : null;
-  if (person) KEYS.set(person, key);
-  return person;
+  if (fromSecret) return { ...fromSecret, ...profile(row), key, via: "secret" };
+
+  const addedRow: Row | null = await first(env, `SELECT * FROM ${TEAM_TABLE} WHERE key_hash = ?`, await sha256(key));
+  if (addedRow) return addedRow.removed_at ? null : { ...fromRow(addedRow), ...profile(row), key };
+
+  if (row) return row.self_serve ? memberPerson(row) : null;
+  if (!selfServeOpen(env) || !looksSelfServe(key)) return null;
+  try {
+    await env.CRM.prepare("INSERT OR IGNORE INTO members (key, capture_token, self_serve, created_at) VALUES (?, ?, 1, ?)")
+      .bind(key, await captureToken(key), new Date().toISOString())
+      .run();
+  } catch {
+    return null;
+  }
+  return memberPerson({ key });
 }
 
 export async function personForCaptureToken(env: Env, token: string): Promise<{ keyHash: string; person: Person } | null> {
   for (const [key, person] of Object.entries(people(env))) {
-    if ((await captureToken(key)) === token) return { keyHash: await sha256(key), person };
+    if ((await captureToken(key)) === token) return { keyHash: await sha256(key), person: { ...person, via: "secret" } };
   }
   const row = (await added(env, " AND capture_hash = ?", await sha256(token)))[0];
-  return row ? { keyHash: row.key_hash, person: fromRow(row) } : null;
+  if (row) return { keyHash: row.key_hash, person: fromRow(row) };
+  const member = await first(env, "SELECT * FROM members WHERE capture_token = ? AND self_serve = 1", token);
+  return member ? { keyHash: await sha256(String(member.key)), person: memberPerson(member) } : null;
 }
 
 /** Everyone who can use this connector: PEOPLE first, then people added from chat. */
@@ -97,7 +164,7 @@ export const TEAM_TOOLS = [
   {
     name: "list_people",
     description:
-      "Everyone who can use this event-hog connector (the team): name, email, whether they're an admin, and whether they're set in the PEOPLE secret or were added from chat (by whom, when). Everyone listed can read and write every event on this server. Never shows connector keys.",
+      "Everyone who can use this event-hog connector (the team): name, email, whether they're an admin, and whether they're set in the PEOPLE secret, were added from chat (by whom, when), or joined from the landing page. Also says whether new people can still join from the landing page. Everyone listed can read and write every event on this server. Never shows connector keys.",
     inputSchema: { type: "object", properties: {} },
     annotations: { readOnlyHint: true },
   },
@@ -119,7 +186,7 @@ export const TEAM_TOOLS = [
   {
     name: "remove_person",
     description:
-      "Admins only. Revoke the connector of someone added with add_person, by email: their URL stops working at once. Their past commits and contacts stay. People set in the PEOPLE secret are removed with wrangler, not here.",
+      "Admins only. Revoke the connector of someone added with add_person, or who joined from the landing page, by email: their URL stops working at once. Their past commits and contacts stay. People set in the PEOPLE secret are removed with wrangler, not here.",
     inputSchema: { type: "object", properties: { email: { type: "string" } }, required: ["email"] },
   },
 ];
@@ -128,13 +195,18 @@ export const TEAM_HANDLERS: Record<string, Handler> = {
   async list_people(_args, env) {
     const fromSecret = Object.values(people(env));
     const rows = await added(env);
+    const joined = await selfServeMembers(env);
     const line = (p: Person, how: string) => `- ${p.name} <${p.email}>${isAdmin(p) ? " · admin" : ""} · ${how}`;
     const lines = [
       ...fromSecret.map((p) => line(p, "set in PEOPLE")),
       ...rows.map((r) => line(fromRow(r), `added by ${r.added_by} on ${r.added_at.slice(0, 10)}`)),
+      ...joined.map((r) => line(memberPerson(r), `joined from the landing page on ${String(r.created_at).slice(0, 10)}${r.name ? "" : " (never gave a name)"}`)),
     ];
-    if (!lines.length) return "Nobody is set up yet.";
-    return `${lines.length} people can use this connector, and each can read and write every event on it:\n${lines.join("\n")}`;
+    const door = selfServeOpen(env)
+      ? "Anyone who copies the landing page's prompt can still join (SELF_SERVE is open)."
+      : "Nobody new can join from the landing page: only PEOPLE and add_person grant access.";
+    if (!lines.length) return `Nobody is set up yet. ${door}`;
+    return `${lines.length} connector(s) can use this server, and each can read and write every event on it:\n${lines.join("\n")}\n${door}`;
   },
 
   async add_person(args, env, person) {
@@ -182,11 +254,18 @@ export const TEAM_HANDLERS: Record<string, Handler> = {
     const email = String(args?.email ?? "").trim().toLowerCase();
     const inSecret = Object.values(people(env)).find((p) => identities(p).includes(email));
     if (inSecret) throw new Error(`${inSecret.name} is set in the PEOPLE secret. Remove them there with wrangler (npx wrangler secret put PEOPLE) and redeploy.`);
+    const at = new Date().toISOString();
     const rows = await added(env, " AND email = ?", email);
-    if (!rows.length) throw new Error(`Nobody added from chat has the email ${email}. list_people shows everyone.`);
-    await env.CRM.prepare(`UPDATE ${TEAM_TABLE} SET removed_by = ?, removed_at = ? WHERE email = ? AND removed_at IS NULL`)
-      .bind(person.name, new Date().toISOString(), email)
-      .run();
-    return `${rows[0].name} <${email}> no longer has access; their connector URL stops working now. What they logged stays, credited to them.`;
+    if (rows.length) {
+      await env.CRM.prepare(`UPDATE ${TEAM_TABLE} SET removed_by = ?, removed_at = ? WHERE email = ? AND removed_at IS NULL`)
+        .bind(person.name, at, email)
+        .run();
+      return `${rows[0].name} <${email}> no longer has access; their connector URL stops working now. What they logged stays, credited to them.`;
+    }
+    // Self-serve members keep their profile row; it just stops granting access.
+    const joined = (await selfServeMembers(env)).filter((r) => String(r.email ?? "").trim().toLowerCase() === email);
+    if (!joined.length) throw new Error(`Nobody added from chat or joined from the landing page has the email ${email}. list_people shows everyone.`);
+    await env.CRM.prepare("UPDATE members SET self_serve = 0, updated_at = ? WHERE lower(email) = ? AND self_serve = 1").bind(at, email).run();
+    return `${joined[0].name ?? email} <${email}> no longer has access: ${joined.length} connector(s) that joined from the landing page stop working now. What they logged stays, credited to them.`;
   },
 };

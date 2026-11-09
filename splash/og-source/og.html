@@ -1,0 +1,179 @@
+<!doctype html>
+<!--
+  Source for event-hog's share images (Technique B: rasterize our own hero).
+  Not deployed: it lives outside public/ and src/.
+
+  Render one format per ?f= (a full page load; a hash change alone doesn't
+  re-run the layout), at that format's exact viewport:
+    ?f=banner          1200x630   (16:9-ish OG canonical)
+    ?f=banner-tall     1200x1600  (3:4, WhatsApp / iMessage)
+    ?f=banner-tall-max 1200x1800  (2:3)
+    ?f=portrait        1080x1350  (4:5)
+    ?f=portrait-tall   1080x1920  (9:16)
+    ?f=square          1200x1200  (1:1)
+  Tall formats keep the top third to the lanyard only, because chat apps
+  crop tall previews from the top.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@500..900&family=Atkinson+Hyperlegible+Next:wght@400;500;700&family=Martian+Mono:wght@400;500;700&display=swap" rel="stylesheet" />
+<style>
+  :root {
+    --hi-vis: #ff4d12; --lanyard: #1d3bff; --hog: #ff6f9f; --ink: #121317;
+    --stock: #efeee8; --card: #fbfaf6; --concrete: #43454e; --dim: #6c6e78;
+    --display: 'Big Shoulders Display', Impact, sans-serif;
+    --sans: 'Atkinson Hyperlegible Next', system-ui, sans-serif;
+    --mono: 'Martian Mono', ui-monospace, monospace;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { width: var(--w); height: var(--h); overflow: hidden; }
+  body {
+    position: relative;
+    background-color: var(--stock);
+    background-image:
+      linear-gradient(rgba(29,59,255,.12) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(29,59,255,.12) 1px, transparent 1px),
+      linear-gradient(rgba(29,59,255,.06) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(29,59,255,.06) 1px, transparent 1px);
+    background-size: 256px 256px, 256px 256px, 32px 32px, 32px 32px;
+    background-position: -1px -1px;
+    font-family: var(--sans);
+    color: var(--ink);
+  }
+  /* Hi-vis floor tape on the left edge. */
+  body::before {
+    content: ''; position: absolute; top: 0; bottom: 0; left: 0; width: 14px;
+    background: repeating-linear-gradient(-45deg, var(--hi-vis) 0 14px, var(--ink) 14px 28px);
+  }
+
+  .stage { position: absolute; inset: 0; display: grid; }
+
+  /* ─── Headline ─────────────────────────────────────────────── */
+  .copy { align-self: center; }
+  .eyebrow {
+    font-family: var(--mono); font-size: 15px; letter-spacing: .14em;
+    text-transform: uppercase; color: var(--dim);
+    display: flex; align-items: center; gap: 10px;
+  }
+  .eyebrow img { width: 30px; height: 30px; }
+  h1 {
+    font-family: var(--display); font-weight: 800; text-transform: uppercase;
+    line-height: .84; letter-spacing: -.005em; margin-top: 18px;
+    display: flex; flex-direction: column;
+  }
+  h1 .hot { color: var(--hi-vis); }
+  .url { margin-top: 22px; font-family: var(--mono); font-size: 16px; color: var(--dim); }
+
+  /* ─── Lanyard + badge (same drawing as the splash hero) ────── */
+  .hang { position: relative; display: flex; flex-direction: column; align-items: center; transform-origin: 50% 0; }
+  .lanyard { position: relative; width: 200px; }
+  .strap {
+    position: absolute; bottom: 0; width: 26px; height: 2000px;
+    background: repeating-linear-gradient(180deg, transparent 0 18px, rgba(255,255,255,.55) 18px 20px), var(--lanyard);
+    border: 2px solid var(--ink);
+  }
+  .strap.l { left: 40px; transform: rotate(-12deg); transform-origin: bottom; }
+  .strap.r { right: 40px; transform: rotate(12deg); transform-origin: bottom; }
+  .clip {
+    position: absolute; bottom: -14px; left: 50%; width: 34px; height: 34px; transform: translateX(-50%);
+    border: 5px solid #8d8f99; border-radius: 8px 8px 50% 50%;
+  }
+  .badge {
+    position: relative; width: 360px; background: var(--card); color: var(--ink);
+    border: 3px solid var(--ink); border-radius: 14px; box-shadow: 8px 8px 0 var(--ink); overflow: hidden;
+  }
+  .slot { position: absolute; top: 12px; left: 50%; width: 64px; height: 12px; transform: translateX(-50%); border-radius: 999px; background: var(--stock); border: 2px solid var(--ink); }
+  .head { display: flex; justify-content: space-between; padding: 36px 20px 10px; font-family: var(--mono); font-size: 10px; letter-spacing: .14em; text-transform: uppercase; border-bottom: 2px dashed var(--ink); }
+  .body { padding: 18px 20px 16px; }
+  .hello { font-family: var(--display); font-weight: 900; font-size: 70px; line-height: .82; text-transform: uppercase; color: var(--hi-vis); }
+  .we { font-family: var(--mono); font-size: 12px; margin: 4px 0 2px; }
+  .name { font-family: var(--display); font-weight: 800; font-size: 50px; line-height: 1; }
+  .role { margin-top: 6px; font-size: 15px; color: var(--concrete); }
+  .foot { display: flex; justify-content: space-between; align-items: end; margin-top: 18px; }
+  .qr { display: grid; grid-template-columns: repeat(11, 7px); grid-auto-rows: 7px; padding: 5px; border: 2px solid var(--ink); background: #fff; }
+  .qr span.on { background: var(--ink); }
+  .meta { display: flex; flex-direction: column; align-items: end; gap: 4px; font-family: var(--mono); font-size: 10px; letter-spacing: .08em; text-transform: uppercase; }
+  .snout { display: inline-flex; gap: 7px; align-items: center; justify-content: center; width: 52px; height: 36px; margin-top: 6px; border-radius: 50%; background: var(--hog); border: 2.5px solid var(--ink); }
+  .snout i { width: 8px; height: 12px; border-radius: 50%; background: var(--ink); }
+  .ribbon { padding: 10px 20px 8px; background: var(--hi-vis); border-top: 3px solid var(--ink); font-family: var(--display); font-weight: 900; font-size: 27px; letter-spacing: .12em; text-transform: uppercase; color: #fff; text-align: center; }
+
+  /* ─── Landscape: headline left, badge hanging right ──────────── */
+  body.landscape .stage { grid-template-columns: 1.25fr 1fr; padding: 0 60px 0 74px; }
+  body.landscape h1 { font-size: 118px; }
+  body.landscape .hang { align-self: start; transform: rotate(-2deg) scale(1.02); }
+  body.landscape .lanyard { height: 120px; }
+
+  /* ─── Tall: lanyard from the top, badge low, headline under ─ */
+  body.tall .stage { grid-template-rows: auto auto; align-content: end; justify-items: center; padding: 0 60px var(--pad-b) 74px; gap: var(--gap); }
+  body.tall .hang { transform: rotate(-2deg) scale(var(--k)); transform-origin: 50% 100%; }
+  body.tall .lanyard { height: var(--lan); }
+  body.tall .copy { text-align: center; }
+  body.tall .eyebrow { justify-content: center; }
+  body.tall h1 { font-size: var(--h1); align-items: center; }
+</style>
+</head>
+<body>
+  <div class="stage">
+    <div class="copy">
+      <p class="eyebrow"><img src="../public/favicon.svg" alt="" /> event-hog · open source · Claude &amp; Codex</p>
+      <h1><span class="line"><span>Work the</span> <span>room.</span></span><span class="line hot"><span>Keep</span> <span>everything.</span></span></h1>
+      <p class="url">eventhog.cc</p>
+    </div>
+    <div class="hang">
+      <div class="lanyard"><span class="strap l"></span><span class="strap r"></span><span class="clip"></span></div>
+      <div class="badge">
+        <span class="slot"></span>
+        <div class="head"><span>Any conference</span><span>Any city</span></div>
+        <div class="body">
+          <p class="hello">Hello</p>
+          <p class="we">we are</p>
+          <p class="name">event&#8209;hog</p>
+          <p class="role">Your team's memory at the show</p>
+          <div class="foot">
+            <div class="qr" id="qr"></div>
+            <div class="meta"><span>Reg # 0.1.0</span><span>Priority A</span><span class="snout"><i></i><i></i></span></div>
+          </div>
+        </div>
+        <div class="ribbon">All Access</div>
+      </div>
+    </div>
+  </div>
+<script>
+  // Same pseudo-QR as the splash hero (seeded from 'event-hog').
+  const QR = 11;
+  let seed = [...'event-hog'].reduce((h, c) => (h * 31 + c.charCodeAt(0)) >>> 0, 7);
+  const rand = () => ((seed = (seed * 1103515245 + 12345) >>> 0) / 2 ** 32);
+  const box = (r, c, r0, c0) => r >= r0 && r < r0 + 3 && c >= c0 && c < c0 + 3;
+  const qr = document.getElementById('qr');
+  for (let i = 0; i < QR * QR; i++) {
+    const r = Math.floor(i / QR), c = i % QR;
+    const on = box(r, c, 0, 0) || box(r, c, 0, QR - 3) || box(r, c, QR - 3, 0) || rand() > 0.52;
+    const s = document.createElement('span'); if (on) s.className = 'on'; qr.appendChild(s);
+  }
+
+  // Format → canvas size and layout knobs.
+  const F = {
+    'banner':          { w: 1200, h: 630,  mode: 'landscape' },
+    'square':          { w: 1200, h: 1200, mode: 'tall', k: 1.78, lan: 60, h1: '118px', gap: '34px', padB: '44px' },
+    'banner-tall':     { w: 1200, h: 1600, mode: 'tall', k: 1.6,  lan: 300, h1: '128px', gap: '96px', padB: '110px' },
+    'banner-tall-max': { w: 1200, h: 1800, mode: 'tall', k: 1.7,  lan: 360, h1: '134px', gap: '110px', padB: '130px' },
+    'portrait':        { w: 1080, h: 1350, mode: 'tall', k: 1.4,  lan: 230, h1: '112px', gap: '80px', padB: '90px' },
+    'portrait-tall':   { w: 1080, h: 1920, mode: 'tall', k: 1.75, lan: 440, h1: '122px', gap: '120px', padB: '170px' },
+  };
+  const f = F[new URLSearchParams(location.search).get('f') || location.hash.slice(1)] || F.banner;
+  const root = document.documentElement.style;
+  root.setProperty('--w', f.w + 'px'); root.setProperty('--h', f.h + 'px');
+  document.body.className = f.mode;
+  if (f.mode === 'tall') {
+    root.setProperty('--k', f.k); root.setProperty('--lan', f.lan + 'px');
+    root.setProperty('--h1', f.h1); root.setProperty('--gap', f.gap); root.setProperty('--pad-b', f.padB);
+    // Headline under the badge in tall formats.
+    const stage = document.querySelector('.stage');
+    stage.appendChild(document.querySelector('.copy'));
+  }
+</script>
+</body>
+</html>

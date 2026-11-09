@@ -1,0 +1,175 @@
+---
+import MetaTags from '@components/MetaTags.astro';
+import Header from '@components/Header.astro';
+import Analytics from '@components/Analytics.astro';
+import { STATIC_SEO, REPO_URL } from '@lib/seo';
+import '@styles/theme.css';
+import '@styles/prose.css';
+
+interface Props {
+  title: string;
+  description?: string;
+  ogImage?: string;
+  ogImageWidth?: number;
+  ogImageHeight?: number;
+  ogImageType?: string;
+  ogImageAlt?: string;
+  ogType?: string;
+  noindex?: boolean;
+  canonical?: string;
+  publishedTime?: string;
+  modifiedTime?: string;
+  author?: string;
+  tags?: string[];
+  /** Hide the global header — used on the index hero so it can render its own. */
+  hideHeader?: boolean;
+}
+
+const {
+  title,
+  description = STATIC_SEO.root.description,
+  ogImage,
+  ogImageWidth,
+  ogImageHeight,
+  ogImageType,
+  ogImageAlt,
+  ogType,
+  noindex,
+  canonical,
+  publishedTime,
+  modifiedTime,
+  author,
+  tags,
+  hideHeader = false,
+} = Astro.props;
+
+const base = import.meta.env.BASE_URL;
+---
+
+<!DOCTYPE html>
+<html lang="en" data-mode="light">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <MetaTags
+      title={title}
+      description={description}
+      ogImage={ogImage}
+      ogImageWidth={ogImageWidth}
+      ogImageHeight={ogImageHeight}
+      ogImageType={ogImageType}
+      ogImageAlt={ogImageAlt}
+      ogType={ogType}
+      noindex={noindex}
+      canonical={canonical}
+      publishedTime={publishedTime}
+      modifiedTime={modifiedTime}
+      author={author}
+      tags={tags}
+    />
+    <link rel="icon" href={`${base}favicon.ico`} sizes="48x48" />
+    <link rel="icon" type="image/svg+xml" href={`${base}favicon.svg`} />
+    <link rel="icon" type="image/png" sizes="96x96" href={`${base}favicon-96x96.png`} />
+    <link rel="apple-touch-icon" sizes="180x180" href={`${base}apple-touch-icon.png`} />
+    <link rel="manifest" href={`${base}site.webmanifest`} />
+    <meta name="theme-color" content="#efeee8" />
+    <link rel="sitemap" type="application/xml" href={`${base}sitemap-index.xml`} />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@500..900&family=Atkinson+Hyperlegible+Next:ital,wght@0,400;0,500;0,700;1,400&family=Martian+Mono:wght@400;500;700&display=swap"
+      rel="stylesheet"
+    />
+    <script is:inline>
+      // Resolve persisted mode before paint to avoid FOUC.
+      (() => {
+        try {
+          const stored = localStorage.getItem('event-hog-splash-mode');
+          if (stored === 'light' || stored === 'dark' || stored === 'vibrant') {
+            document.documentElement.setAttribute('data-mode', stored);
+          }
+        } catch {}
+      })();
+    </script>
+    <Analytics />
+  </head>
+  <body>
+    <div class="bg-mesh" aria-hidden="true"></div>
+    {!hideHeader && <Header />}
+    <slot />
+    <footer class="site-footer">
+      <div class="container site-footer__inner">
+        <div class="site-footer__sign" aria-hidden="true">Exit</div>
+        <div class="site-footer__col">
+          <p class="eyebrow">Source</p>
+          <p>
+            <a href={REPO_URL} target="_blank" rel="noopener">github</a>
+            ·
+            <a href={`${REPO_URL}/blob/main/COLLABORATE.md`} target="_blank" rel="noopener">collaborate</a>
+          </p>
+        </div>
+        <div class="site-footer__col">
+          <p class="eyebrow">Read</p>
+          <p>
+            <a href={`${base}changelog/`}>changelog</a>
+            ·
+            <a href={`${base}context-v/`}>context</a>
+            ·
+            <a href={`${REPO_URL}/blob/main/DATA-POLICY.md`} target="_blank" rel="noopener">data policy</a>
+          </p>
+        </div>
+        <div class="site-footer__col">
+          <p class="eyebrow">Made by</p>
+          <p>
+            <a href="https://lossless.group" target="_blank" rel="noopener">The Lossless Group</a>
+          </p>
+        </div>
+        <div class="site-footer__legal">
+          <p>Apache-2.0. Credit appreciated. First worked the floor at the 7x24 Exchange Fall 2026, with Edviro Energy.</p>
+        </div>
+      </div>
+    </footer>
+  </body>
+</html>
+
+<style>
+  .site-footer {
+    margin-top: var(--space-24);
+    border-top: 3px solid var(--color-border-strong);
+    background: var(--color-bg-soft);
+    padding: var(--space-12) 0 var(--space-16);
+  }
+  .site-footer__inner {
+    display: grid;
+    grid-template-columns: auto repeat(3, 1fr);
+    gap: var(--space-8);
+    align-items: start;
+  }
+  .site-footer__sign {
+    font-family: var(--font__display);
+    font-weight: 900;
+    font-size: 1.4rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: #fff;
+    background: var(--color__go);
+    padding: 4px 14px 2px;
+    border-radius: var(--radius-sm);
+  }
+  .site-footer__col p:not(.eyebrow) {
+    margin-top: var(--space-2);
+    color: var(--color-text-soft);
+    font-size: 0.95rem;
+  }
+  .site-footer__legal {
+    grid-column: 1 / -1;
+    border-top: 1px solid var(--color-border);
+    padding-top: var(--space-4);
+    color: var(--color-text-dim);
+    font-size: 0.85rem;
+  }
+  @media (max-width: 800px) {
+    .site-footer__inner { grid-template-columns: 1fr 1fr; }
+    .site-footer__sign { justify-self: start; grid-column: 1 / -1; }
+  }
+</style>
