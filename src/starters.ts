@@ -25,11 +25,11 @@ const list = (v: unknown): string[] =>
 type Card = { path: string; front: Front; body: string };
 
 const DRAFTS = "drafts";
-const KINDS = ["tweet", "thread", "linkedin", "blog"];
+const KINDS = ["tweet", "thread", "linkedin", "blog", "email"];
 const STATUSES = ["angle", "outline", "draft", "ready", "posted", "dropped"];
 // Official, long-form pieces speak for the company; short social posts speak
 // for the person. A draft can override it.
-const DEFAULT_VOICE: Record<string, string> = { blog: "company", linkedin: "personal", thread: "personal", tweet: "personal" };
+const DEFAULT_VOICE: Record<string, string> = { blog: "company", linkedin: "personal", thread: "personal", tweet: "personal", email: "personal" };
 
 // X counts every link as 23 characters, whatever its length.
 const xLength = (t: string) => t.replace(/https?:\/\/\S+/g, "x".repeat(23)).length;

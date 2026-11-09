@@ -1,0 +1,481 @@
+/* ─────────────────────────────────────────────────────────────────────────
+   theme.css — event-hog-mcp/splash
+   Two-tier token system + three-mode contract per the Astro Knots convention.
+
+   Tier 1: NAMED tokens  (--color__hi-vis, --font__display)
+           Mode-invariant raw values.
+   Tier 2: SEMANTIC tokens (--color-bg, --color-accent)
+           Reference Tier 1; rebound per <html data-mode="...">.
+
+   The look is the show floor: badge stock, hi-vis tape, lanyard blue,
+   condensed venue signage, and a floor-plan grid underneath everything.
+   - light   : default; "show floor" — badge-stock paper under hall lights.
+   - dark    : "after hours" — the hall at night, blueprint lines glowing.
+   - vibrant : "keynote" — stage black, hot pink and acid lime.
+   ───────────────────────────────────────────────────────────────────────── */
+
+:root {
+  /* ─── Tier 1: NAMED tokens ───────────────────────────────────────────── */
+
+  /* Brand spine — hi-vis orange (the tape on the floor), lanyard blue,
+     hog pink (used sparingly; it's the mascot's colour, not the brand's). */
+  --color__hi-vis:        #ff4d12;
+  --color__hi-vis-deep:   #c2360a;
+  --color__lanyard:       #1d3bff;
+  --color__lanyard-deep:  #0f229e;
+  --color__lanyard-soft:  #9fb0ff;
+  --color__hog:           #ff6f9f;
+  --color__hog-soft:      #ffc2d6;
+  --color__go:            #11845b;
+  --color__go-soft:       #8fe0bf;
+
+  /* Keynote hues */
+  --color__acid:          #c6ff2e;
+  --color__stage-pink:    #ff2e88;
+
+  /* Neutrals — badge stock and venue concrete */
+  --color__stock:         #efeee8;
+  --color__stock-soft:    #e6e4db;
+  --color__stock-deep:    #d9d6ca;
+  --color__card:          #fbfaf6;
+  --color__ink:           #121317;
+  --color__concrete-700:  #43454e;
+  --color__concrete-500:  #6c6e78;
+  --color__concrete-400:  #8d8f99;
+  --color__concrete-200:  #c7c8cf;
+  --color__night:         #0a0f1f;
+  --color__night-soft:    #111831;
+  --color__night-card:    #16203f;
+  --color__stage:         #08070a;
+
+  /* Typography — Tier 1.
+     Display: Big Shoulders Display — condensed, built for wayfinding signage.
+     Sans:    Atkinson Hyperlegible Next — made to be read at a glance,
+              which is how anyone reads anything on a show floor.
+     Mono:    Martian Mono — badge numbers, booth codes, tool names. */
+  --font__display: 'Big Shoulders Display', 'Arial Narrow', Impact, sans-serif;
+  --font__sans:    'Atkinson Hyperlegible Next', 'Atkinson Hyperlegible', system-ui, sans-serif;
+  --font__mono:    'Martian Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.25rem;
+  --space-6: 1.5rem;
+  --space-8: 2rem;
+  --space-10: 2.5rem;
+  --space-12: 3rem;
+  --space-16: 4rem;
+  --space-20: 5rem;
+  --space-24: 6rem;
+
+  /* Radii — badges get die-cut corners; everything else is square like a
+     printed program. */
+  --radius-sm: 2px;
+  --radius-md: 3px;
+  --radius-lg: 6px;
+  --radius-xl: 14px;
+  --radius-pill: 999px;
+
+  --transition-fast: 160ms ease;
+  --transition-mid:  320ms ease;
+
+  /* Floor-plan grid size (the background ornament). */
+  --grid-cell: 32px;
+
+  color-scheme: light;
+}
+
+/* ─── Tier 2: SEMANTIC — LIGHT ("show floor", default) ─────────────────── */
+:root,
+:root[data-mode='light'] {
+  --color-bg:           var(--color__stock);
+  --color-bg-soft:      var(--color__stock-soft);
+  --color-bg-elevated:  var(--color__card);
+  --color-bg-card:      var(--color__card);
+  --color-bg-code:      var(--color__stock-deep);
+
+  --color-text:         var(--color__ink);
+  --color-text-soft:    var(--color__concrete-700);
+  --color-text-dim:     var(--color__concrete-500);
+  --color-text-dimmer:  var(--color__concrete-400);
+  --color-text-faint:   var(--color__concrete-200);
+
+  --color-accent:       var(--color__lanyard);
+  --color-accent-soft:  var(--color__lanyard-deep);
+  --color-accent-warm:  var(--color__hi-vis);
+  --color-accent-hot:   var(--color__hi-vis-deep);
+  --color-mascot:       var(--color__hog);
+
+  --color-thread:       var(--color__go);
+  --color-thread-soft:  var(--color__go);
+
+  --color-border:        rgba(18, 19, 23, 0.12);
+  --color-border-strong: #121317;
+  --color-border-accent: rgba(29, 59, 255, 0.45);
+
+  --color-grid:          rgba(29, 59, 255, 0.06);
+  --color-grid-major:    rgba(29, 59, 255, 0.12);
+  --color-tape-b:        #121317;
+
+  --shadow-glow:     none;
+  --shadow-card:     4px 4px 0 #121317;
+  --shadow-elevated: 8px 8px 0 #121317;
+
+  --gradient-thread: linear-gradient(100deg, var(--color__hi-vis) 0%, var(--color__hog) 100%);
+
+  color-scheme: light;
+}
+
+/* ─── Tier 2: SEMANTIC — DARK ("after hours") ─────────────────────────── */
+:root[data-mode='dark'] {
+  --color-bg:           var(--color__night);
+  --color-bg-soft:      var(--color__night-soft);
+  --color-bg-elevated:  var(--color__night-card);
+  --color-bg-card:      var(--color__night-card);
+  --color-bg-code:      #050814;
+
+  --color-text:         #eef0f7;
+  --color-text-soft:    #c3c8db;
+  --color-text-dim:     #8e95ad;
+  --color-text-dimmer:  #6a7089;
+  --color-text-faint:   #3b4260;
+
+  --color-accent:       var(--color__lanyard-soft);
+  --color-accent-soft:  #cfd8ff;
+  --color-accent-warm:  #ff6a2e;
+  --color-accent-hot:   var(--color__hi-vis);
+  --color-mascot:       var(--color__hog-soft);
+
+  --color-thread:       var(--color__go-soft);
+  --color-thread-soft:  #c6f1df;
+
+  --color-border:        rgba(238, 240, 247, 0.12);
+  --color-border-strong: #9fb0ff;
+  --color-border-accent: rgba(159, 176, 255, 0.5);
+
+  --color-grid:          rgba(159, 176, 255, 0.05);
+  --color-grid-major:    rgba(159, 176, 255, 0.11);
+  --color-tape-b:        #0a0f1f;
+
+  --shadow-glow:     0 0 40px rgba(29, 59, 255, 0.25);
+  --shadow-card:     4px 4px 0 #000;
+  --shadow-elevated: 8px 8px 0 #000;
+
+  --gradient-thread: linear-gradient(100deg, #ff6a2e 0%, var(--color__hog-soft) 100%);
+
+  color-scheme: dark;
+}
+
+/* ─── Tier 2: SEMANTIC — VIBRANT ("keynote") ──────────────────────────── */
+:root[data-mode='vibrant'] {
+  --color-bg:           var(--color__stage);
+  --color-bg-soft:      #121016;
+  --color-bg-elevated:  #1a1720;
+  --color-bg-card:      #16131b;
+  --color-bg-code:      #000;
+
+  --color-text:         #fbf7ff;
+  --color-text-soft:    #e4dcef;
+  --color-text-dim:     #a99fb8;
+  --color-text-dimmer:  #7a718a;
+  --color-text-faint:   #3a3442;
+
+  --color-accent:       var(--color__acid);
+  --color-accent-soft:  #e2ff8f;
+  --color-accent-warm:  var(--color__stage-pink);
+  --color-accent-hot:   var(--color__stage-pink);
+  --color-mascot:       var(--color__stage-pink);
+
+  --color-thread:       var(--color__acid);
+  --color-thread-soft:  #e2ff8f;
+
+  --color-border:        rgba(198, 255, 46, 0.16);
+  --color-border-strong: var(--color__acid);
+  --color-border-accent: rgba(255, 46, 136, 0.6);
+
+  --color-grid:          rgba(255, 46, 136, 0.06);
+  --color-grid-major:    rgba(255, 46, 136, 0.13);
+  --color-tape-b:        #000;
+
+  --shadow-glow:     0 0 60px rgba(255, 46, 136, 0.35);
+  --shadow-card:     4px 4px 0 var(--color__stage-pink);
+  --shadow-elevated: 8px 8px 0 var(--color__stage-pink);
+
+  --gradient-thread: linear-gradient(100deg, var(--color__acid) 0%, var(--color__stage-pink) 100%);
+
+  color-scheme: dark;
+}
+
+/* ─── Reset & base ────────────────────────────────────────────────────── */
+
+*, *::before, *::after { box-sizing: border-box; }
+* { margin: 0; padding: 0; }
+
+html {
+  overflow-x: clip;
+  scroll-behavior: smooth;
+  background: var(--color-bg);
+  transition: background var(--transition-mid);
+}
+
+body {
+  min-height: 100vh;
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family: var(--font__sans);
+  font-size: 17px;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  position: relative;
+  overflow-x: clip;
+  transition: background var(--transition-mid), color var(--transition-mid);
+}
+
+h1, h2, h3, h4, h5, h6 {
+  font-family: var(--font__display);
+  font-weight: 800;
+  line-height: 0.95;
+  letter-spacing: 0.005em;
+  text-transform: uppercase;
+  color: var(--color-text);
+}
+
+a {
+  color: var(--color-accent);
+  text-decoration: none;
+  text-underline-offset: 3px;
+  transition: color var(--transition-fast);
+}
+a:hover { text-decoration: underline; text-decoration-thickness: 2px; }
+a:focus-visible,
+button:focus-visible,
+summary:focus-visible {
+  outline: 3px solid var(--color-accent-warm);
+  outline-offset: 3px;
+  border-radius: 2px;
+}
+
+ul, ol { list-style: none; }
+img { max-width: 100%; height: auto; }
+
+::selection {
+  background: var(--color-accent-warm);
+  color: #fff;
+}
+
+/* ─── Background ornament — the floor plan ────────────────────────────── */
+/* Class name kept as .bg-mesh for the shared BaseLayout contract. */
+.bg-mesh {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background-image:
+    linear-gradient(var(--color-grid-major) 1px, transparent 1px),
+    linear-gradient(90deg, var(--color-grid-major) 1px, transparent 1px),
+    linear-gradient(var(--color-grid) 1px, transparent 1px),
+    linear-gradient(90deg, var(--color-grid) 1px, transparent 1px);
+  background-size:
+    calc(var(--grid-cell) * 8) calc(var(--grid-cell) * 8),
+    calc(var(--grid-cell) * 8) calc(var(--grid-cell) * 8),
+    var(--grid-cell) var(--grid-cell),
+    var(--grid-cell) var(--grid-cell);
+  background-position: -1px -1px;
+}
+
+/* Hi-vis floor tape down the left edge, like an aisle marking. */
+.bg-mesh::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 10px;
+  background: repeating-linear-gradient(
+    -45deg,
+    var(--color-accent-warm) 0 12px,
+    var(--color-tape-b) 12px 24px
+  );
+}
+@media (max-width: 720px) {
+  .bg-mesh::after { width: 6px; }
+}
+
+body > :not(.bg-mesh) {
+  position: relative;
+  z-index: 1;
+}
+
+/* ─── Utility primitives ─────────────────────────────────────────────── */
+
+.container {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 0 var(--space-6) 0 calc(var(--space-6) + 10px);
+}
+
+.container-narrow {
+  max-width: 760px;
+  margin: 0 auto;
+  padding: 0 var(--space-6) 0 calc(var(--space-6) + 10px);
+}
+
+@media (max-width: 720px) {
+  .container, .container-narrow { padding: 0 var(--space-4) 0 calc(var(--space-4) + 6px); }
+}
+
+.mono    { font-family: var(--font__mono); }
+.display { font-family: var(--font__display); }
+
+.eyebrow {
+  font-family: var(--font__mono);
+  font-size: 0.68rem;
+  font-weight: 500;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--color-text-dim);
+}
+
+/* Folio — a hall sign: an orange block with the hall number, then the label. */
+.folio {
+  display: inline-flex;
+  align-items: center;
+  font-family: var(--font__mono);
+  font-size: 0.68rem;
+  font-weight: 500;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  line-height: 1;
+  color: var(--color-text);
+  gap: 10px;
+  padding-right: 10px;
+  border: 2px solid var(--color-border-strong);
+  background: var(--color-bg-elevated);
+}
+.folio::before {
+  content: attr(data-num);
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 8px;
+  background: var(--color-accent-warm);
+  color: #fff;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.gradient-text {
+  background: var(--gradient-thread);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 3px 9px;
+  border-radius: var(--radius-pill);
+  font-family: var(--font__mono);
+  font-size: 0.64rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  border: 1.5px solid var(--color-text-dim);
+  color: var(--color-text-soft);
+  background: transparent;
+}
+.pill[data-status='Active'],
+.pill[data-status='Stable'],
+.pill[data-status='Shipped'],
+.pill[data-status='live'] {
+  color: var(--color-thread);
+  border-color: var(--color-thread);
+}
+.pill[data-status='Beta'] {
+  color: var(--color-accent);
+  border-color: var(--color-accent);
+}
+.pill[data-status='Alpha'],
+.pill[data-status='Experiment'],
+.pill[data-status='planned'],
+.pill[data-status='Draft'] {
+  color: var(--color-accent-warm);
+  border-color: var(--color-accent-warm);
+}
+
+.from-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 8px;
+  border-radius: var(--radius-sm);
+  font-family: var(--font__mono);
+  font-size: 0.64rem;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  color: var(--color-thread);
+  border: 1.5px solid var(--color-thread);
+}
+.from-tag::before {
+  content: '';
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  background: var(--color-thread);
+}
+
+.chip {
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: var(--radius-sm);
+  font-family: var(--font__mono);
+  font-size: 0.76em;
+  background: var(--color-bg-code);
+  color: var(--color-text);
+  white-space: nowrap;
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 10px 20px 9px;
+  border-radius: var(--radius-md);
+  font-family: var(--font__display);
+  font-size: 1.2rem;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  border: 2px solid var(--color-border-strong);
+  background: var(--color-bg-elevated);
+  color: var(--color-text);
+  box-shadow: var(--shadow-card);
+  cursor: pointer;
+  transition: transform var(--transition-fast), box-shadow var(--transition-fast);
+}
+.btn:hover {
+  text-decoration: none;
+  transform: translate(-2px, -2px);
+  box-shadow: var(--shadow-elevated);
+}
+.btn:active {
+  transform: translate(2px, 2px);
+  box-shadow: none;
+}
+.btn-primary {
+  background: var(--color-accent-warm);
+  color: #fff;
+}
+:root[data-mode='vibrant'] .btn-primary { color: #000; background: var(--color-accent); }
+
+/* ─── Reduced motion ─────────────────────────────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    transition: none !important;
+    animation: none !important;
+    scroll-behavior: auto !important;
+  }
+}

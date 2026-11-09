@@ -5,6 +5,9 @@
   "main": "src/index.ts",
   "compatibility_date": "2026-10-25",
   "compatibility_flags": ["nodejs_compat"],
+  // Skills and the event template ship inside the Worker (src/kit.generated.ts).
+  "build": { "command": "node scripts/bundle-kit.mjs" },
+  "observability": { "enabled": true, "traces": { "enabled": true } },
   "artifacts": [
     // One repo per event, plus the kit (event-hog-kit), in this namespace.
     { "binding": "ARTIFACTS", "namespace": "event-hog" },
@@ -34,8 +37,15 @@
     "KIT_REPO": "event-hog-kit",
     // This Worker's public URL. Capture pages, upload links and /media/ URLs use it.
     "PUBLIC_URL": "https://event-hog.<your-subdomain>.workers.dev"
+    // Optional: send GET / somewhere else (eventhog.cc does this for the deployment
+    // we run). Leave it out and the Worker serves its own copy-a-prompt page.
+    // "HOME_URL": "https://eventhog.cc/#connect"
+    // Optional: let anyone who copies the landing page's prompt join. Leave it
+    // out and only PEOPLE and add_person grant access.
+    // "SELF_SERVE": "open"
   }
   // Secrets (wrangler secret put):
-  //   PEOPLE      JSON map of connector key -> { "name": "...", "email": "..." }
-  //   ACCOUNT_ID  only used to build a remote URL if info() doesn't return one
+  //   PEOPLE               JSON map of connector key -> { "name": "...", "email": "...", "admin"?: true }
+  //   ACCOUNT_ID           only used to build a remote URL if info() doesn't return one
+  //   CONTEXT_DEV_API_KEY  optional; turns on enrich_people
 }

@@ -1,5 +1,9 @@
 # event-hog-mcp
 
+[![A conference badge on a blue lanyard: "Hello, we are event-hog. Your team's memory at the show." Work the room. Keep everything.](https://eventhog.cc/ogimage__Event-Hog--Banner.jpg)](https://eventhog.cc)
+
+**[eventhog.cc](https://eventhog.cc)**
+
 A team working a conference gets one shared workspace in Claude (Desktop,
 web, mobile) or Codex. It covers prep before, contacts, notes and slides
 during, and follow-ups after. You talk to it in plain words: "who is this?",
@@ -82,6 +86,41 @@ the person in front of them.
 - **Sends contacts on.** They go to your CRM after you approve, or to an
   import file (see Three ways to run it).
 
+## Getting someone connected
+
+On the deployment we run, that's [eventhog.cc](https://eventhog.cc/#connect).
+On your own, open the Worker's home page (`https://<your worker>/`). Press
+**Copy this prompt**. The prompt carries a personal connector link (a random key made in
+the browser) and tells the person's agent how to add it: Cursor and Claude
+Code and Codex add it themselves; Claude and ChatGPT apps walk the person
+through Settings, Connectors. Then the agent calls `get_started`, which asks:
+
+1. Which company do you represent?
+2. Which conference are you going to?
+
+It finds (or starts, with `new_event`) the event's workspace, works out from
+the dates whether they're **before**, **during** or **after** it, and returns
+that phase's playbook:
+
+- **Before:** pull the attendee list (`conference-attendee-export`), save it
+  (`save_attendees`), research and rank who's worth finding
+  (`prioritize-attendees`, `enrich_people`, `save_targets`), and show the
+  shortlist.
+- **During:** how to log someone in a sentence or a badge photo
+  (`log_contact`), "who should I find next?" (`targets`), and the slide
+  camera page.
+- **After:** who to follow up with, most important first; how to get
+  contacts into their CRM through their own CRM connector (EventHog never
+  writes to a CRM itself); follow-up emails (`draft-follow-up-emails`); and
+  Origami for sending at scale.
+
+With `"SELF_SERVE": "open"`, a key the server hasn't seen becomes a new
+member (the `members` table in D1) on its first call. Without it, the server
+is invite-only: people come from the `PEOPLE` secret or an admin's
+`add_person`, and a landing-page key gets a 401. Keys in `PEOPLE` win over
+everything else. There's no org management yet: everyone on a deployment
+shares one workspace and one database.
+
 ## Three ways to run it
 
 Every way produces the same workspace (see
@@ -160,22 +199,54 @@ Writes add files or append to them, so a retry never clobbers anything.
 
 | Path | What |
 |---|---|
-| `POST /mcp/<key>` | The MCP endpoint (JSON-RPC over HTTP). The key identifies the person |
+| `GET /` | The landing page: copy the connect prompt with a personal link (an invite-only notice unless `SELF_SERVE` is open) |
+| `POST /mcp/<key>` | The MCP endpoint (JSON-RPC over HTTP). The key identifies the person. Opened in a browser, it explains itself instead |
 | `GET /media/<key>` | Public files from the bucket. HTML is served with a CSP sandbox: no scripts, no forms |
 | `/capture/<token>` | A person's camera page for slide photos. The token is derived from their key |
 | `PUT /upload/<ticket>` | A one-time, 15-minute upload link minted by `upload_link` |
 
 ### The kit
 
-[`kit/`](kit/) is what goes into the `event-hog-kit` Artifacts repo: the
-skills the server serves (`list_skills`, `get_skill`), the template a new
-event starts from (`new_event`), and per-deployment settings
-(`config/skills.json`, served by `get_config`). Skills are read from the kit
-first, then from the CRM deployment's brain repo (`BRAIN_NAMESPACE/SKILLS_REPO`).
+[`kit/skills/`](kit/skills/) and [`kit/templates/`](kit/templates/) are
+bundled into the Worker at build time (`scripts/bundle-kit.mjs` writes
+`src/kit.generated.ts`; wrangler's build command runs it). So the skills
+the server serves (`list_skills`, `get_skill`) and the template a new event
+starts from (`new_event`) ship with every deploy and are versioned with the
+code, with no git clone per call. This follows Cloudflare's Agent Skills
+pattern: bundled skills first, then optional remote sources that are skipped
+if they fail to load. Here the optional source is the CRM deployment's brain
+repo (`BRAIN_NAMESPACE/SKILLS_REPO`).
+
+What's written at runtime stays in the `event-hog-kit` Artifacts repo:
+per-deployment and per-person settings (`config/skills.json`, served by
+`get_config`, written by `set_my_research_tools`) and brand design systems
+(`brand/<name>/DESIGN.md`).
+
+Kit skills: `conference-attendee-export`, `prioritize-attendees`,
+`augment-speakers-panelists`, `parallel-content-generation-starters`,
+`capture-slides`, `recreate-slides-in-brand`, `maintain-design-system`,
+`draft-follow-up-emails`.
 
 ## Tools
 
-**Workspace:** `event_brief` (start here), `list_events`, `new_event`,
+**Getting started and prep:** `get_started` (first time), `save_my_profile`,
+`save_attendees`, `enrich_people`, `save_targets`, `targets`.
+
+`enrich_people` looks roster entries (name and company) up through
+[context.dev](https://www.context.dev)'s People Enrich with the deployment's
+key, so nobody connecting needs an account: current title and employer,
+LinkedIn, sometimes a work email, and a match band (confirmed at score 70+,
+unconfirmed at 40 to 69). Every answer, misses included, is cached in the
+`enrichments` table, so the team never pays twice for one person. A match
+costs 20 credits and a miss is free (the free tier is 1,000 credits a month).
+Without the key, or out of credits, it tells the agent to use web search.
+
+**Next steps:** `what_can_i_do` lists what the person can say right now, for
+before, during or after the event. Most tools also end their result with a
+"Next:" line of follow-on offers, and the server asks the agent to close each
+reply with two or three of them, so nobody has to know the tool list.
+
+**Workspace:** `event_brief`, `list_events`, `new_event`,
 `whoami`, `list_files`, `read_file`, `search`, `recent_activity`,
 `append_to_file`, `add_note`.
 
@@ -186,6 +257,21 @@ admins `add_person` (makes a teammate's connector URL) and `remove_person`.
 email, then name and company), `contacts_csv`, `query_crm`, `relate_orgs`,
 `define_location`, `link_location`, `who_is_in`, `crm_queue`,
 `mark_crm_synced`, `export_hubspot_csv`.
+
+`crm_queue` and `export_hubspot_csv` cover everyone the team met at the event
+by default. `met_by` narrows them to the contacts certain people met
+(`["me"]`, or `["me", "Michael"]`), matched against who logged each
+touchpoint; a name that fits two people is rejected rather than guessed.
+`owner: "me"` makes the caller the CRM owner of every contact instead of
+whoever first logged them.
+
+Conversations go too: `crm_queue` lists every touchpoint not yet in HubSpot
+for the agent to log as a completed meeting on the contact (owned by whoever
+had the conversation, titled "Met at <event>", with where and the notes), and
+every open follow-up as a task. `mark_touchpoints_synced` records the meeting
+and task IDs in `crm_links`, so nothing is logged twice, and a touchpoint
+added after the contact was synced still shows up next time. The CSV export
+carries contacts only.
 
 **Skills:** `list_skills`, `get_skill`, `get_config`, `set_my_research_tools`,
 `save_speaker_profile`.
@@ -209,8 +295,13 @@ skills), which a model can fail to follow.
 - Every write is a commit authored as the caller (`PEOPLE` maps key → name and email).
 - Only people marked `"admin": true` in `PEOPLE` can add or remove teammates.
   People added from chat are never admins, and can't be given a teammate's
-  email. Their keys are stored only as hashes, `query_crm` refuses to read
-  that table, and `list_people` never shows a key.
+  email. Their keys are stored only as hashes, and `list_people` never shows
+  a key.
+- `query_crm` refuses to read `connector_people` and `members` (where keys
+  sit as written).
+- A key from the landing page joins only while `SELF_SERVE` is `"open"`. A
+  profile saved with `save_my_profile` never grants access by itself, so
+  taking someone out of `PEOPLE`, or `remove_person`, locks them out.
 - Contact and note writes add or append; existing contact fields are filled
   when blank, never overwritten. Slide notes that already exist get "another
   take", not a replacement.
@@ -240,10 +331,18 @@ team can use it, never looked at or used commercially.
 ## Security model, plainly
 
 - **The connector URL is the credential.** Anyone with `…/mcp/<key>` acts as
-  that person. There is no sign-in yet. Treat the URL like a password.
+  that person. There is no sign-in yet. Treat the URL like a password. Keys
+  are stored as written in the `PEOPLE` secret and the `members` table;
+  `add_person` keeps only a hash.
+- **Joining is closed unless you open it.** Without `"SELF_SERVE": "open"`,
+  only `PEOPLE` and `add_person` grant access, and a key from the landing
+  page gets a 401. With it, the landing page mints a key for whoever opens
+  it, and every member reads and writes the same workspace and database.
+  Fine for one team; not for strangers.
 - **Everyone with access sees every event.** There's no per-event
-  membership: anyone in `PEOPLE` or added with `add_person` can read and
-  write every event on the server, contacts included.
+  membership: anyone in `PEOPLE`, added with `add_person`, or joined from the
+  landing page can read and write every event on the server, contacts
+  included. `list_people` shows them all.
 - **`add_person` returns the new URL in the chat.** It's shown once and not
   stored, but it stays in that conversation's history. `remove_person`
   revokes it.
@@ -265,8 +364,9 @@ team can use it, never looked at or used commercially.
 - The used-upload-link marker is check-then-write, not atomic.
 - `event-prep` isn't in `kit/` yet. It lives in
   [lossless-agent-skills](https://github.com/lossless-group/lossless-agent-skills),
-  and it was written for our Twenty CRM. It needs an event-hog-shaped copy
-  in the kit.
+  and it was written for our Twenty CRM. `get_started`'s "before" playbook
+  covers the attendee side (`conference-attendee-export`,
+  `prioritize-attendees`); agenda and sponsor research still need it.
 - The no-backend way has no skill of its own yet. The kit's skills name
   event-hog's tools, so without the server Claude has to follow the
   template's layout itself.
@@ -286,17 +386,42 @@ npx wrangler d1 migrations apply agnostic-crm --remote
 ```
 
 1. Fill in the `<...>` values in `wrangler.jsonc`, including `PUBLIC_URL`.
-2. Create the `event-hog-kit` repo in your Artifacts namespace and push
-   `kit/` into it. Copy `kit/config/skills.example.json` to
-   `config/skills.json` and fill it in.
+2. Create the `event-hog-kit` repo in your Artifacts namespace for runtime
+   settings: copy `kit/config/skills.example.json` to `config/skills.json`
+   and fill it in. (Skills and the event template are bundled; they don't
+   need pushing.)
 3. Set the people: `npx wrangler secret put PEOPLE`, a JSON map of connector
-   key → `{ "name", "email", "emails"?, "crm_email"?, "admin"? }`. Generate
-   each key with `openssl rand -hex 24`. Mark at least one person
-   `"admin": true` so they can add teammates from chat (`add_person`), which
-   stores them in D1 instead of this secret.
-4. `npx wrangler deploy`.
-5. Each person adds `https://<your worker>/mcp/<their key>` in Claude as a
-   custom connector. Then ask Claude to start a new event (`new_event`).
+   key → `{ "name", "email", "emails"?, "crm_email"?, "admin"? }` (keys from
+   `openssl rand -hex 24`). Mark at least one person `"admin": true` so they
+   can add teammates from chat (`add_person`), which stores them in D1
+   instead of this secret.
+4. Optional: `npx wrangler secret put CONTEXT_DEV_API_KEY` (a key from the
+   [context.dev dashboard](https://www.context.dev/dashboard/api-keys)) to
+   turn on `enrich_people`.
+5. Optional: to let anyone join from the landing page, set
+   `"SELF_SERVE": "open"` in `vars`. Leave it out and the server is
+   invite-only.
+6. `npx wrangler deploy` (the build step bundles `kit/`).
+7. Each person adds `https://<your worker>/mcp/<their key>` in Claude as a
+   custom connector. (With `SELF_SERVE` open, they can instead copy the
+   connect prompt from `https://<your worker>/`.)
+
+Keep a deployment's real values (D1 id, URL) in its own
+`wrangler.<name>.jsonc`, which git ignores, and deploy with
+`npx wrangler deploy -c wrangler.<name>.jsonc`.
+
+### Deploy on every push
+
+`.github/workflows/deploy-worker.yml` applies D1 migrations and deploys
+whenever `main` changes code, skills or migrations. It runs only in the repo
+named in its `if:` (Edviro's fork). That repo needs three Actions secrets:
+
+- `CLOUDFLARE_API_TOKEN`: a token from the "Edit Cloudflare Workers"
+  template, plus D1 Edit.
+- `CLOUDFLARE_ACCOUNT_ID`.
+- `WRANGLER_CONFIG_B64`: the deployment's `wrangler.<name>.jsonc`, base64.
+  After changing that file, update it with
+  `base64 -i wrangler.<name>.jsonc | gh secret set WRANGLER_CONFIG_B64`.
 
 `seeds/` has the 7x24 Exchange Fall 2026 instance as an example seed.
 

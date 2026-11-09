@@ -3,14 +3,18 @@
 // its next call. Plus the first skill's write path: save_speaker_profile.
 //
 // Skills come from two places, in order:
-//   1. event-hog-kit (event-hog namespace), skills/<name>/: event-hog's own,
-//      CRM-agnostic package. Its copy wins when a name exists in both.
-//   2. the deployment's CRM brain (hubspot-brain/agent-skills): CRM-specific.
-// Per-person config lives in the kit (config/skills.json).
+//   1. kit/skills/<name>/ in this repo, bundled into the Worker at build time
+//      (src/kit.generated.ts): event-hog's own, CRM-agnostic skills. Its copy
+//      wins when a name exists in both.
+//   2. the deployment's CRM brain (BRAIN_NAMESPACE/SKILLS_REPO): CRM-specific.
+//      Optional: if it can't be read, it's skipped, never fatal.
+// Per-person config is written at runtime, so it stays in the event-hog-kit
+// Artifacts repo (config/skills.json).
 
-import type { Env, Handler, Person, Space, Workspace } from "./index";
+import type { Env, Handler, Person, Workspace } from "./index";
 import { DIR, open, read, walk, write, parseFront, slug, now, crmEmail } from "./index";
 import { ensureInstance, ensureOrg, findOrg, findPerson } from "./crm";
+import { KIT } from "./kit.generated";
 
 const CONFIG_PATH = "config/skills.json";
 
@@ -25,16 +29,33 @@ async function loadConfig(ws: Workspace): Promise<any> {
     const c = JSON.parse(text);
     return { org: c.org ?? {}, people: c.people ?? {} };
   } catch {
-    throw new Error(`${CONFIG_PATH} isn't valid JSON. Fix it in the brain repo.`);
+    throw new Error(`${CONFIG_PATH} isn't valid JSON. Fix it in the event-hog-kit repo.`);
   }
 }
 
-type Source = { space: Space; repo: string; prefix: string; label: string };
-const sources = (env: Env): Source[] => [
-  { space: "event", repo: env.KIT_REPO, prefix: "skills/", label: env.KIT_REPO },
-  { space: "brain", repo: env.SKILLS_REPO, prefix: "", label: `${env.BRAIN_NAMESPACE}/${env.SKILLS_REPO}` },
-];
 const openKit = (env: Env, scope: "read" | "write") => open(env, env.KIT_REPO, scope, "event");
+
+function bundledSkills(): { name: string; description: string }[] {
+  const out: { name: string; description: string }[] = [];
+  for (const [path, text] of Object.entries(KIT)) {
+    const m = path.match(/^skills\/([^/]+)\/SKILL\.md$/);
+    if (!m) continue;
+    const { front } = parseFront(text);
+    out.push({ name: front.name || m[1], description: front.description || "" });
+  }
+  return out.sort((a, b) => a.name.localeCompare(b.name));
+}
+
+// The brain repo is optional: a deployment without one still serves the kit.
+async function openBrain(env: Env): Promise<Workspace | null> {
+  if (!env.BRAIN || !env.BRAIN_NAMESPACE || !env.SKILLS_REPO) return null;
+  try {
+    return await open(env, env.SKILLS_REPO, "read", "brain");
+  } catch (err) {
+    console.warn(JSON.stringify({ msg: "brain skills repo unavailable", repo: `${env.BRAIN_NAMESPACE}/${env.SKILLS_REPO}`, error: String(err) }));
+    return null;
+  }
+}
 
 async function skillNames(ws: Workspace, prefix = ""): Promise<{ name: string; description: string }[]> {
   const out: { name: string; description: string }[] = [];
@@ -139,14 +160,16 @@ export const SKILL_HANDLERS: Record<string, Handler> = {
   async list_skills(_args, env) {
     const seen = new Set<string>();
     const lines: string[] = [];
-    for (const src of sources(env)) {
-      const ws = await open(env, src.repo, "read", src.space);
-      for (const s of await skillNames(ws, src.prefix)) {
+    const add = (skills: { name: string; description: string }[], label: string) => {
+      for (const s of skills) {
         if (seen.has(s.name)) continue;
         seen.add(s.name);
-        lines.push(`- ${s.name} (${src.label}): ${s.description.split(". ")[0].slice(0, 220)}`);
+        lines.push(`- ${s.name} (${label}): ${s.description.split(". ")[0].slice(0, 220)}`);
       }
-    }
+    };
+    add(bundledSkills(), "event-hog");
+    const brain = await openBrain(env);
+    if (brain) add(await skillNames(brain), `${env.BRAIN_NAMESPACE}/${env.SKILLS_REPO}`);
     return lines.length ? lines.join("\n") : "No skills published yet.";
   },
 
@@ -154,12 +177,20 @@ export const SKILL_HANDLERS: Record<string, Handler> = {
     const name = slug(String(args.name ?? ""));
     const file = args.file ? String(args.file).replace(/^\/+/, "") : "SKILL.md";
     if (file.split("/").some((p) => p === ".." || p === ".git")) throw new Error("Invalid file path.");
-    const names: string[] = [];
-    for (const src of sources(env)) {
-      const ws = await open(env, src.repo, "read", src.space);
-      const text = await read(ws, `${src.prefix}${name}/${file}`);
+    const bundled = KIT[`skills/${name}/${file}`];
+    if (bundled !== undefined) {
+      if (file !== "SKILL.md") return bundled;
+      const others = Object.keys(KIT)
+        .filter((p) => p.startsWith(`skills/${name}/`) && !p.endsWith("/SKILL.md"))
+        .map((p) => p.slice(`skills/${name}/`.length));
+      return others.length ? `${bundled}\n\n---\nFiles in this skill (load with get_skill name: "${name}", file: "<path>"): ${others.join(", ")}` : bundled;
+    }
+    const names = bundledSkills().map((s) => s.name);
+    const brain = await openBrain(env);
+    if (brain) {
+      const text = await read(brain, `${name}/${file}`);
       if (text !== null) return text;
-      names.push(...(await skillNames(ws, src.prefix)).map((s) => s.name));
+      names.push(...(await skillNames(brain)).map((s) => s.name));
     }
     throw new Error(`No ${file} for skill "${args.name}". Available skills: ${[...new Set(names)].join(", ") || "none"}.`);
   },
