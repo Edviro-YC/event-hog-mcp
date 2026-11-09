@@ -6,7 +6,8 @@
 //   can't change its own secrets, so people added at runtime live here. Only
 //   hashes of their keys are kept.
 // - members rows with self_serve = 1: connectors that joined from the landing
-//   page. New ones join only while SELF_SERVE is "open". The same table holds
+//   page. New ones join only while SELF_SERVE is "open". admin = 1 on such a
+//   row (set with wrangler; no tool writes it) makes it an admin. The same table holds
 //   the profile anyone saves with save_my_profile; a profile alone grants
 //   nothing, so taking someone out of PEOPLE or connector_people locks them out.
 //
@@ -63,6 +64,7 @@ export function memberPerson(row: any): Person {
     ideal_customer: row.ideal_customer || undefined,
     guest: !row.name,
     via: "self-serve",
+    admin: Number(row.admin) === 1,
   };
 }
 
@@ -148,7 +150,7 @@ const isAdmin = (person: Person) => person.admin === true;
 
 function requireAdmin(person: Person): void {
   if (!isAdmin(person)) {
-    throw new Error(`${person.name} can't add or remove teammates. Someone marked "admin": true in the PEOPLE secret can, or anyone can with wrangler (README: Deploy your own).`);
+    throw new Error(`${person.name} can't add or remove teammates. An admin can: someone marked "admin": true in the PEOPLE secret, or a landing-page connector marked admin in D1 (README: Deploy your own).`);
   }
 }
 
