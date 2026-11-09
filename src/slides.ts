@@ -134,7 +134,7 @@ export async function addSlides(
   const paths: string[] = [];
   for (const [i, img] of images.entries()) {
     const nn = String(taken + i + 1).padStart(2, "0");
-    const key = `${event}/${folder}/${nn}-${crypto.randomUUID().slice(0, 12)}.${img.ext}`;
+    const key = `${env.MEDIA_PREFIX ?? ""}${event}/${folder}/${nn}-${crypto.randomUUID().slice(0, 12)}.${img.ext}`;
     await env.MEDIA.put(key, img.bytes, { httpMetadata: { contentType: img.contentType }, customMetadata: { captured_by: person.name, event } });
     const imageUrl = `${env.PUBLIC_URL || origin}/media/${key}`;
     const base = `${folder}/${nn}`;

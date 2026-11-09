@@ -57,7 +57,10 @@ const page = (title: string, body: string) =>
 // JSON inside <script>: keep "</script>" from closing the tag early.
 const inScript = (v: unknown) => JSON.stringify(v).replace(/</g, "\\u003c");
 
-export function landingPage(origin: string): Response {
+export function landingPage(origin: string, ownTeams = false): Response {
+  const shared = ownTeams
+    ? "You get a private team of your own: nobody else on this EventHog can see it. Invite teammates from chat (ask your agent to add a person)."
+    : "Everything logged here goes into one shared workspace that everyone on this EventHog can see.";
   return page(
     "EventHog",
     `<h1>EventHog</h1>
@@ -94,7 +97,7 @@ export function landingPage(origin: string): Response {
   <p>Your agent will ask which company you represent and which conference you're going to. Then it picks up wherever you are: before, during, or after.</p>
 </div>
 
-<p class="fine">Your link is like a password: anyone with it can write as you. This browser remembers it, so come back here to copy it again. Everything logged here goes into one shared workspace that everyone on this EventHog can see. EventHog never posts or emails anything, and never writes to your CRM by itself.</p>
+<p class="fine">Your link is like a password: anyone with it can write as you. This browser remembers it, so come back here to copy it again. ${shared} EventHog never posts or emails anything, and never writes to your CRM by itself.</p>
 <p class="fine"><button class="quiet" id="fresh">Make me a new link</button></p>
 
 <script>

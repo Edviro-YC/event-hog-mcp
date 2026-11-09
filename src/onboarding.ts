@@ -8,6 +8,7 @@ import type { Env, Handler, Person } from "./index";
 import { DIR, read, write, slug, now } from "./index";
 import { captureToken } from "./slides";
 import { ensureInstance, ensureOrg, findPerson } from "./crm";
+import { saveProfile as saveConnectorProfile, teamName } from "./team";
 
 const ev = (args: any, env: Env) => (args?.event ? String(args.event) : env.DEFAULT_EVENT);
 const DAY = 86_400_000;
@@ -27,17 +28,8 @@ async function saveProfile(env: Env, person: Person, args: any): Promise<string[
   if (values[1] && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(values[1])) throw new Error(`"${values[1]}" isn't an email address.`);
   const changed = PROFILE_FIELDS.filter((_, i) => values[i]);
   if (!changed.length) return [];
-  const at = new Date().toISOString();
-  await env.CRM.prepare(
-    `INSERT INTO members (key, capture_token, name, email, company, company_url, ideal_customer, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-     ON CONFLICT (key) DO UPDATE SET
-       name = COALESCE(excluded.name, members.name), email = COALESCE(excluded.email, members.email),
-       company = COALESCE(excluded.company, members.company), company_url = COALESCE(excluded.company_url, members.company_url),
-       ideal_customer = COALESCE(excluded.ideal_customer, members.ideal_customer), updated_at = excluded.updated_at`,
-  )
-    .bind(person.key, await captureToken(person.key), ...values, at, at)
-    .run();
+  const [name, email, company, company_url, ideal_customer] = values;
+  await saveConnectorProfile(env, person, { name, email, company, company_url, ideal_customer });
   for (const [i, k] of PROFILE_FIELDS.entries()) if (values[i]) (person as any)[k] = values[i];
   if (values[0]) person.guest = false;
   return [...changed];
@@ -328,9 +320,13 @@ export const ONBOARDING_HANDLERS: Record<string, Handler> = {
     if (!name) missing.push(`${missing.length + 1}. What's your name? (So what you log is credited to you.)`);
     const noEmail = !person.email || /@eventhog\.invalid$/i.test(person.email);
     if (missing.length && noEmail) missing.push(`${missing.length + 1}. Your work email? (Optional. It's how the contacts you log get assigned to you in your CRM.)`);
+    const founder = person.team && person.via === "self-serve";
     if (missing.length) {
       return [
         saved.length ? `Saved: ${saved.join(", ")}.` : "",
+        founder
+          ? "Their link started a private team of their own on EventHog: nobody else here can see what they log. Once they're set up they can invite teammates (add_person). Tell them that in a line, and that if their company already uses EventHog, they should ask its admin for an invite instead of starting a team."
+          : "",
         "Ask the person, in one short friendly message (skip anything they've already told you in this conversation):",
         ...missing,
         "Then call get_started again with their answers (company, conference, name, and email if they gave it).",
@@ -343,7 +339,7 @@ export const ONBOARDING_HANDLERS: Record<string, Handler> = {
       "SELECT id, slug, name, starts_on, ends_on, time_zone, website, city FROM event_instances WHERE artifacts_repo IS NOT NULL ORDER BY starts_on",
     ).all();
     const matches = matchEvents((results ?? []) as Instance[], conference);
-    const hello = `${name} (${company})${saved.length ? `. Saved to their profile: ${saved.join(", ")}` : ""}.`;
+    const hello = `${name} (${company}), in ${teamName(env, person)}${saved.length ? `. Saved to their profile: ${saved.join(", ")}` : ""}.`;
 
     if (!matches.length) {
       return [
