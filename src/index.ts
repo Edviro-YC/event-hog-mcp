@@ -20,12 +20,14 @@ import { STARTER_TOOLS, STARTER_HANDLERS, STARTER_PROMPTS, STARTER_NUDGES } from
 import { SLIDE_TOOLS, SLIDE_HANDLERS, SLIDE_PROMPTS, handleCapture, serveMedia } from "./slides";
 import { BRAND_TOOLS, BRAND_HANDLERS, BRAND_PROMPTS } from "./brand";
 import { EVENT_TOOLS, EVENT_HANDLERS, withCurrentEvent, forEvent, eventsTable } from "./events";
-import { UPLOAD_TOOLS, UPLOAD_HANDLERS, handleUpload } from "./uploads";
-import { TEAM_TOOLS, TEAM_HANDLERS, personForKey, allPeople, selfServeOpen, looksSelfServe } from "./team";
+import { UPLOAD_TOOLS, UPLOAD_HANDLERS, handleUpload, uploadTeam } from "./uploads";
+import { TEAM_TOOLS, TEAM_HANDLERS, personForKey, personForCaptureToken, allPeople, selfServeOpen, looksSelfServe, SignupsPaused, teamName } from "./team";
+import type { Team } from "./team-do";
 import { ONBOARDING_TOOLS, ONBOARDING_HANDLERS, ONBOARDING_PROMPTS } from "./onboarding";
 import { ENRICH_TOOLS, ENRICH_HANDLERS } from "./enrich";
 import { SUGGESTION_TOOLS, SUGGESTION_HANDLERS, NEXT_STEPS } from "./suggestions";
 import { landingPage, connectorPage } from "./landing";
+import { KIT } from "./kit.generated";
 
 export interface Env {
   ARTIFACTS: any;
@@ -45,10 +47,24 @@ export interface Env {
   PUBLIC_URL: string;
   /** Where GET / sends people, if the copy-a-prompt page lives elsewhere (eventhog.cc). Unset: this Worker serves its own. */
   HOME_URL?: string;
-  /** "open": a new key from the landing page joins on its first call. Anything else: only PEOPLE and add_person grant access. */
+  /** "teams": a new key from the landing page starts its own team. "open": it joins the home team. Unset: only add_person grants access. */
   SELF_SERVE?: string;
+  /** Cap on teams started from the landing page per 24 hours (default 50). */
+  MAX_NEW_TEAMS_PER_DAY?: string;
+  /** The home team's name, for whoami and list_people ("Edviro"). */
+  HOME_TEAM_NAME?: string;
   /** Secret: context.dev key behind enrich_people. Without it the tool says to use web search. */
   CONTEXT_DEV_API_KEY?: string;
+  /** One Durable Object per team other than home: its database and its tool calls. */
+  TEAM: DurableObjectNamespace;
+  // Set only inside a team's Durable Object (team-do.ts teamEnv):
+  /** The main D1, for the registry (connector_people, teams), while CRM is the team's own database. */
+  ACCESS_DB?: any;
+  TEAM_ID?: string;
+  /** Prefix on the team's repo names: tm-<id>-. */
+  TEAM_PREFIX?: string;
+  /** Prefix on the team's media keys: teams/<id>/. */
+  MEDIA_PREFIX?: string;
 }
 
 export interface Person {
@@ -59,12 +75,16 @@ export interface Person {
   emails?: string[];
   /** The address their CRM (HubSpot) knows them by: owners and "created by" match on it. */
   crm_email?: string;
-  /** Can add and remove teammates from chat. From the PEOPLE secret, or members.admin (set with wrangler) for a self-serve connector. */
+  /** Can add and remove teammates from chat: a team's founder, connector_people.admin, members.admin, or "admin": true in PEOPLE. */
   admin?: boolean;
   /** The connector key this request came in on. */
   key?: string;
   /** Where their access comes from: the PEOPLE secret, add_person, or the landing page. */
   via?: "secret" | "added" | "self-serve";
+  /** Their team's id, if it isn't the home team. */
+  team?: string;
+  /** Their team's name: the founder's company. */
+  team_name?: string;
   /** The company they represent at events, and who buys from it. */
   company?: string;
   company_url?: string;
@@ -96,7 +116,7 @@ How to use it:
 - Starters: whenever someone logs a contact, adds a note, or saves a speaker profile, load parallel-content-generation-starters (once per conversation) and follow it. Answer the person first; starters come after, short, and never block logging. Flash cards for acronyms, vocabulary, concepts and market standards go in the shared deck with save_flash_cards; flash_cards reads it. Post drafts (tweets, threads, LinkedIn, blog) go in drafts/ with save_draft and add_to_draft, in the company voice for official pieces and the person's own voice for theirs (get_config). Nothing is ever posted from here.
 - Slides and other images: an image attached in chat can't be passed to a tool. If you have a code-execution sandbox, the attachment is a file there: upload_link gives a one-time URL to send it to the event's image host with curl (slides become slides waiting for notes; badges, cards, photos and PDFs return a /media/ URL to put in the contact or note). If the sandbox can't reach the host, or there is none, give the person their slide_capture_link (a camera page that shrinks and saves photos under their name) and don't retry the upload. Then list slides needing notes, look at each with view_slide, and write them up with save_slide_notes (load the capture-slides skill first).
 - Brand: get_design_system returns the organization's DESIGN.md; if there is none, extract_brand reads the company site and maintain-design-system says how to draft one. When a batch of slides is written up, ask whether any are worth recreating in the brand (recreate-slides-in-brand); every recreation credits its source on the slide.
-- Team: list_people shows everyone with access to this server (they can all see every event). Admins can add a teammate with add_person, which returns that teammate's personal connector URL once: confirm the name and email first, and tell the person to send the URL privately. remove_person revokes someone added that way.
+- Team: each connector belongs to one team, and a team's events, contacts and slides are private to it (whoami says which team). list_people shows everyone on the team. Admins (whoever started the team, at first) add a teammate with add_person, which returns that teammate's personal connector URL once: confirm the name and email first, and tell the person to send the URL privately. remove_person revokes someone.
 - Start with event_brief to see the event, the team, the prep docs, and what's been logged. Tools use the current event (the one on today, else one that ended in the last week, else the next) unless you pass event; list_events shows them all. new_event starts a workspace for a new event from the kit's template: confirm the official name, dates, city and time zone with the person first, then offer the event-prep skill.
 - Before logging a contact, search for them: log_contact appends to an existing contact (matched by email, then name) instead of making a duplicate, but a quick search shows what teammates already know.
 - log_contact takes whatever the person gives you: a typed note, a badge or business-card photo you've read, or a voice memo transcript. Never invent fields. Leave unknown ones out.
@@ -104,30 +124,38 @@ How to use it:
 - add_note is for anything that isn't one person: a session takeaway, a theme from the floor, an idea.
 - recent_activity shows what teammates logged and when.
 - Locations are human-defined and nested (define_location); a person or org can have many (link_location), and who_is_in finds everyone inside a place, nested places included.
-- query_crm answers structured questions (who at an org have we met, which orgs relate to which, open follow-ups) from the agnostic-crm database, which log_contact keeps in step with the files.
+- query_crm answers structured questions (who at an org have we met, which orgs relate to which, open follow-ups) from the team's agnostic-crm database, which log_contact keeps in step with the files.
 - CRM: contacts start as hubspot_status pending. If the user has a HubSpot connector, crm_queue lists what's pending: everyone the team met by default, or only the contacts certain people met with met_by (["me"], or ["me", "Michael"]). Each pending contact shows who logged it and their HubSpot email: make that HubSpot user the contact owner (find them with search_owners by that email). Propose the HubSpot records, create them only after the user approves, then call mark_crm_synced with the HubSpot ID. crm_queue also lists conversations not yet in HubSpot: log each as a completed meeting associated with the contact (owned by whoever had it) and each follow-up as a task, then call mark_touchpoints_synced with their IDs. Never mark something synced that wasn't created.
 - If the HubSpot connection isn't working (no HubSpot connector, sign-in fails, or HubSpot calls error), don't keep retrying and don't stop logging. log_contact is the raw record: it saves every contact to the shared files and the agnostic-crm database whether or not HubSpot works. At each stopping point (end of a conversation, a break, end of the day) run export_hubspot_csv: it writes everyone still pending into a HubSpot-ready import file, committed under exports/, for a bulk import later. Tell the user that's what happened.`;
 
 // ---------------------------------------------------------------- entry point
 
+// The Worker is the front door: it resolves who is calling, then runs the
+// home team's calls itself (CRM is the main D1) and hands every other team's
+// to that team's Durable Object (team-do.ts), one RPC per request.
 export default {
-  async fetch(request: Request, configured: Env): Promise<Response> {
+  async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
-    // The event a call means when it names none: today's, from the database.
-    // Upload links carry their event, so they skip the lookup too.
-    const upload = url.pathname.match(/^\/upload\/([A-Za-z0-9_-]+\.[A-Za-z0-9_-]+)$/);
-    if (upload) return handleUpload(request, configured, upload[1]);
-    const env = url.pathname.startsWith("/media/") ? configured : await withCurrentEvent(configured);
     if (url.pathname.startsWith("/media/") && request.method === "GET") return serveMedia(env, url.pathname.slice(7));
+
+    // Upload links carry their event, so they skip the current-event lookup.
+    const upload = url.pathname.match(/^\/upload\/([A-Za-z0-9_-]+\.[A-Za-z0-9_-]+)$/);
+    if (upload) {
+      const team = await uploadTeam(env, upload[1]);
+      return team ? teamStub(env, team).upload(request, team, upload[1]) : handleUpload(request, env, upload[1]);
+    }
     const capture = url.pathname.match(/^\/capture\/([a-f0-9]{32})\/?$/);
-    if (capture) return handleCapture(request, env, capture[1]);
+    if (capture) {
+      const team = (await personForCaptureToken(env, capture[1]))?.person.team;
+      return team ? teamStub(env, team).capture(request, team, capture[1]) : handleCapture(request, await withCurrentEvent(env), capture[1]);
+    }
     const match = url.pathname.match(/^\/mcp\/([A-Za-z0-9_-]{16,})\/?$/);
 
     if (url.pathname === "/" && request.method === "GET") {
       if (env.HOME_URL) return Response.redirect(env.HOME_URL, 302);
       // The landing page mints keys; while joining is closed they wouldn't work.
       if (!selfServeOpen(env)) return new Response("This event-hog server is invite-only. Ask its admin for your own connector URL.\n");
-      return landingPage(url.origin);
+      return landingPage(url.origin, env.SELF_SERVE === "teams");
     }
     if (!match) return new Response("Not found", { status: 404 });
 
@@ -136,7 +164,13 @@ export default {
       return connectorPage(`${url.origin}/mcp/${match[1]}`, env.HOME_URL ?? "/");
     }
 
-    const person = await personForKey(env, match[1]);
+    let person: Person | null;
+    try {
+      person = await personForKey(env, match[1]);
+    } catch (err) {
+      if (err instanceof SignupsPaused) return new Response(err.message, { status: 503 });
+      throw err;
+    }
     if (!person && looksSelfServe(match[1]) && !selfServeOpen(env)) {
       return new Response("This event-hog server is invite-only. Ask its admin for your own connector URL.", { status: 401 });
     }
@@ -153,17 +187,26 @@ export default {
       return rpcResponse({ jsonrpc: "2.0", id: null, error: { code: -32700, message: "Parse error" } });
     }
 
-    if (Array.isArray(body)) {
-      const out = (await Promise.all(body.map((m) => handle(m, env, person)))).filter(Boolean);
-      return out.length ? rpcResponse(out) : new Response(null, { status: 202 });
-    }
-    const out = await handle(body, env, person);
+    const out = person.team
+      ? await teamStub(env, person.team).call(body, person)
+      : await respond(body, await withCurrentEvent(env), person);
     return out ? rpcResponse(out) : new Response(null, { status: 202 });
   },
 };
 
+// The RPC methods of a team's Durable Object (team-do.ts).
+type TeamStub = Pick<Team, "call" | "capture" | "upload">;
+const teamStub = (env: Env, team: string) => env.TEAM.getByName(team) as unknown as TeamStub;
+
 function rpcResponse(payload: unknown): Response {
   return new Response(JSON.stringify(payload), { headers: { "content-type": "application/json" } });
+}
+
+/** Answer one JSON-RPC message or a batch: null when there's nothing to send back. */
+export async function respond(body: any, env: Env, person: Person): Promise<unknown> {
+  if (!Array.isArray(body)) return handle(body, env, person);
+  const out = (await Promise.all(body.map((m) => handle(m, env, person)))).filter(Boolean);
+  return out.length ? out : null;
 }
 
 export function people(env: Env): Record<string, Person> {
@@ -241,19 +284,85 @@ export interface Workspace {
 // "brain" repos in hubspot-brain (shared skills and configuration).
 export type Space = "event" | "brain";
 
+const noEvent = (event: string) => `There's no event workspace called "${event}" yet. Run get_started (or list_events, or new_event to start one).`;
+
+// A team other than home has repos named tm-<id>-<name> in the shared
+// namespace; tools and people only ever see <name>. Every repo access goes
+// through here, so no name can reach another team's repos.
+export function repoFor(env: Env, event: string): string {
+  const name = String(event ?? "").trim();
+  if (!name) throw new Error("There's no event yet. Run get_started to find or start one (or new_event).");
+  if (name === env.KIT_REPO) return name;
+  const prefix = env.TEAM_PREFIX ?? "";
+  const bare = prefix && name.startsWith(prefix) ? name.slice(prefix.length) : name;
+  if (bare.startsWith("tm-")) throw new Error(noEvent(name));
+  return prefix + bare;
+}
+
+const KIT_README = `# Kit
+
+This team's event-hog kit: design systems (brand/<name>/DESIGN.md, written by save_design_system) and per-person settings (config/skills.json, written by set_my_research_tools). Skills and the event template ship with the server.
+`;
+
+// A team's kit repo appears on its first write; until then reads see an empty kit.
+async function startKit(env: Env): Promise<void> {
+  const files: Record<string, string> = { "README.md": KIT_README };
+  for (const [p, text] of Object.entries(KIT)) if (p.startsWith("brand/") || p.startsWith("config/")) files[p] = text;
+  try {
+    await createRepo(env, env.KIT_REPO, "event-hog kit", files, { name: "event-hog", email: "kit@eventhog.invalid" }, "kit: start from the bundled kit");
+  } catch (err) {
+    // A teammate's first write may have started it a moment ago.
+    console.warn(JSON.stringify({ msg: "kit not created", repo: env.KIT_REPO, error: String(err) }));
+  }
+}
+
+/** Create a repo and push its first commit; deletes it again if the push fails. Returns the commit id. */
+export async function createRepo(
+  env: Env,
+  name: string,
+  description: string,
+  files: Record<string, string>,
+  author: { name: string; email: string },
+  message: string,
+): Promise<string> {
+  const created = await env.ARTIFACTS.create(name, { description, setDefaultBranch: "main" });
+  try {
+    const fs = new MemoryFS();
+    await git.init({ fs, dir: DIR, defaultBranch: "main" });
+    for (const [p, text] of Object.entries(files)) {
+      await fs.promises.mkdir(`${DIR}/${p.split("/").slice(0, -1).join("/")}`, { recursive: true } as any).catch(() => {});
+      await fs.promises.writeFile(`${DIR}/${p}`, text);
+      await git.add({ fs, dir: DIR, filepath: p });
+    }
+    const oid = await git.commit({ fs, dir: DIR, message, author });
+    const secret = String(created.token).split("?expires=")[0];
+    const pushed: any = await git.push({ fs, http, dir: DIR, url: created.remote, ref: "main", onAuth: () => ({ username: "x", password: secret }) });
+    if (pushed?.ok === false) throw new Error(pushed?.error ?? "push rejected");
+    return oid;
+  } catch (err) {
+    // Don't leave an empty repo behind for the next try to trip on.
+    await env.ARTIFACTS.delete(name).catch(() => {});
+    throw err;
+  }
+}
+
 export async function open(env: Env, event: string, scope: "read" | "write", space: Space = "event"): Promise<Workspace> {
   const ns = space === "brain" ? env.BRAIN_NAMESPACE : env.NAMESPACE;
+  const name = space === "brain" ? event : repoFor(env, event);
   let repo: any;
   try {
-    repo = await (space === "brain" ? env.BRAIN : env.ARTIFACTS).get(event);
+    repo = await (space === "brain" ? env.BRAIN : env.ARTIFACTS).get(name);
   } catch (err: any) {
-    if (space === "brain" || event === env.KIT_REPO) throw err;
-    throw new Error(`There's no event workspace called "${event}" yet. Run get_started (or list_events, or new_event to start one).`);
+    if (space === "brain" || (name === env.KIT_REPO && !env.TEAM_ID)) throw err;
+    if (name !== env.KIT_REPO) throw new Error(noEvent(event));
+    if (scope === "read") return { fs: new MemoryFS(), remote: "", onAuth: () => ({ username: "x", password: "" }) };
+    await startKit(env);
+    repo = await env.ARTIFACTS.get(name);
   }
   try {
     const info = await repo.info();
     const remote: string =
-      info?.remote ?? `https://${env.ACCOUNT_ID}.artifacts.cloudflare.net/git/${ns}/${event}.git`;
+      info?.remote ?? `https://${env.ACCOUNT_ID}.artifacts.cloudflare.net/git/${ns}/${name}.git`;
     const token = await repo.createToken(scope, 600);
     const secret = String(token.plaintext).split("?expires=")[0];
     const onAuth = () => ({ username: "x", password: secret });
@@ -750,14 +859,21 @@ const HANDLERS: Record<string, Handler> = {
     const company = person.company ? ` You represent ${person.company}.` : "";
     const admin = person.admin === true ? " You're an admin: you can add and remove teammates (add_person, remove_person)." : "";
     const guest = person.guest ? " This connector has no name yet: run get_started." : "";
-    return `You are ${person.name} <${primary}> (commits are authored as this address).${also}${company} HubSpot knows you as ${crmEmail(person)}. Current event: ${env.DEFAULT_EVENT}.${admin}${guest}`;
+    const event = env.DEFAULT_EVENT ? `Current event: ${env.DEFAULT_EVENT}.` : "No events yet: get_started finds or starts one.";
+    return `You are ${person.name} <${primary}> (commits are authored as this address).${also}${company} You're in ${teamName(env, person)}: everyone on it shares its events and contacts, and nobody outside it can see them. HubSpot knows you as ${crmEmail(person)}. ${event}${admin}${guest}`;
   },
 
   async list_events(_args, env) {
-    const page = await env.ARTIFACTS.list({ limit: 100 });
-    // The kit lives in the same namespace but isn't an event.
-    const names = (page?.repos ?? []).map((r: any) => r.name).filter((n: string) => n !== env.KIT_REPO);
     const known = new Map(((await eventsTable(env)) ?? []).map((i) => [i.slug, i]));
+    // A team's events are the ones in its own database. Home lists the
+    // namespace, minus the kit and other teams' tm- repos.
+    const names: string[] = env.TEAM_ID ? [...known.keys()] : [];
+    for (let i = 0, cursor: string | undefined; !env.TEAM_ID && i < 20; i++) {
+      const page = await env.ARTIFACTS.list({ limit: 100, ...(cursor ? { cursor } : {}) });
+      names.push(...(page?.repos ?? []).map((r: any) => String(r.name)).filter((n: string) => n !== env.KIT_REPO && !n.startsWith("tm-")));
+      cursor = page?.cursor;
+      if (!cursor) break;
+    }
     const line = (n: string) => {
       const i = known.get(n);
       const when = i?.starts_on ? ` · ${i.starts_on}${i.ends_on && i.ends_on !== i.starts_on ? ` to ${i.ends_on}` : ""}` : "";

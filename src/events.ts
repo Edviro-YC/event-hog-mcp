@@ -6,17 +6,15 @@
 // and instance in agnostic-crm, so the next event starts the way the last one
 // ended up, not from a blank page.
 
-import git from "isomorphic-git";
-import http from "isomorphic-git/http/web";
 import type { Env, Handler, Person } from "./index";
-import { DIR, slug } from "./index";
+import { slug, repoFor, createRepo } from "./index";
 import { KIT } from "./kit.generated";
 import { allPeople } from "./team";
-import { MemoryFS } from "./memory-fs";
 import { ensureOrg } from "./crm";
 import { ensureLocation, linkLocationStmt, addEdge } from "./locations";
 
 const TEMPLATE = "templates/event";
+const MAX_TEAM_EVENTS = 20;
 const DAY = 86_400_000;
 const isDate = (s: unknown) => typeof s === "string" && /^\d{4}-\d{2}-\d{2}$/.test(s) && !isNaN(Date.parse(s));
 
@@ -197,11 +195,16 @@ export const EVENT_HANDLERS: Record<string, Handler> = {
     if (!validZone(String(a.time_zone))) throw new Error(`"${a.time_zone}" isn't a time zone. Use an IANA name like America/Chicago.`);
 
     const name = a.slug ? String(a.slug) : eventSlug(a.starts_on, a.short_name || a.name);
-    if (!/^[a-z0-9][a-z0-9-]{2,62}$/.test(name)) throw new Error(`"${name}" can't be a workspace name: lowercase letters, digits, and hyphens only.`);
-    if (name === env.KIT_REPO) throw new Error(`"${name}" is the kit's name.`);
+    if (!/^[a-z0-9][a-z0-9-]{2,62}$/.test(name) || name.startsWith("tm-")) throw new Error(`"${name}" can't be a workspace name: lowercase letters, digits, and hyphens only, not starting with tm-.`);
+    const repoName = repoFor(env, name);
+    if (repoName === env.KIT_REPO) throw new Error(`"${name}" is the kit's name.`);
+    if (env.TEAM_ID) {
+      const count = ((await eventsTable(env)) ?? []).length;
+      if (count >= MAX_TEAM_EVENTS) throw new Error(`A team on this server can have up to ${MAX_TEAM_EVENTS} events, and this one has ${count}. To make room, ask whoever runs the server to archive old ones.`);
+    }
     let exists = false;
     try {
-      const repo = await env.ARTIFACTS.get(name);
+      const repo = await env.ARTIFACTS.get(repoName);
       repo?.[Symbol.dispose]?.();
       exists = true;
     } catch {}
@@ -212,7 +215,7 @@ export const EVENT_HANDLERS: Record<string, Handler> = {
     if (!paths.length) throw new Error(`The kit has no ${TEMPLATE}/. Nothing to start from.`);
     const team =
       a.team ||
-      (person.via === "self-serve" ? `${person.name}${person.company ? ` (${person.company})` : ""}` : (await allPeople(env)).map((p) => p.name).join(" · "));
+      (person.via === "self-serve" && !env.TEAM_ID ? `${person.name}${person.company ? ` (${person.company})` : ""}` : (await allPeople(env)).map((p) => p.name).join(" · "));
     const fill: Record<string, string> = {
       "Event name": a.name,
       City: a.city || a.venue || "location TBD",
@@ -231,35 +234,11 @@ export const EVENT_HANDLERS: Record<string, Handler> = {
     delete files["prep/.gitkeep"];
 
     // Create the repo and push the first commit.
-    const created = await env.ARTIFACTS.create(name, { description: a.name, setDefaultBranch: "main" });
     let commit = "";
     try {
-      const fs = new MemoryFS();
-      await git.init({ fs, dir: DIR, defaultBranch: "main" });
-      for (const [p, text] of Object.entries(files)) {
-        await fs.promises.writeFile(`${DIR}/${p}`, text);
-        await git.add({ fs, dir: DIR, filepath: p });
-      }
-      const oid = await git.commit({
-        fs,
-        dir: DIR,
-        message: `new event: ${a.name}\n\nStarted from kit/${TEMPLATE}.`,
-        author: { name: person.name, email: person.email },
-      });
-      const secret = String(created.token).split("?expires=")[0];
-      const pushed: any = await git.push({
-        fs,
-        http,
-        dir: DIR,
-        url: created.remote,
-        ref: "main",
-        onAuth: () => ({ username: "x", password: secret }),
-      });
-      if (pushed?.ok === false) throw new Error(pushed?.error ?? "push rejected");
+      const oid = await createRepo(env, repoName, a.name, files, { name: person.name, email: person.email }, `new event: ${a.name}\n\nStarted from kit/${TEMPLATE}.`);
       commit = oid.slice(0, 8);
     } catch (err: any) {
-      // Don't leave an empty workspace behind for the next try to trip on.
-      await env.ARTIFACTS.delete(name).catch(() => {});
       throw new Error(`Couldn't set up the workspace: ${err?.message ?? err}`);
     }
 
@@ -284,7 +263,7 @@ export const EVENT_HANDLERS: Record<string, Handler> = {
            ends_on = excluded.ends_on, venue = excluded.venue, city = excluded.city, website = excluded.website,
            artifacts_repo = excluded.artifacts_repo, time_zone = excluded.time_zone`,
       )
-        .bind(crypto.randomUUID(), seriesId, name, a.name, a.starts_on, a.ends_on ?? null, a.venue ?? null, a.city ?? null, a.website ?? null, `${env.NAMESPACE}/${name}`, a.time_zone, at)
+        .bind(crypto.randomUUID(), seriesId, name, a.name, a.starts_on, a.ends_on ?? null, a.venue ?? null, a.city ?? null, a.website ?? null, `${env.NAMESPACE}/${repoName}`, a.time_zone, at)
         .run();
       const instanceId = (await env.CRM.prepare("SELECT id FROM event_instances WHERE slug = ?").bind(name).first())?.id as string;
       db.push(`instance${a.series ? `, series "${a.series}"` : ""}${a.organizer ? `, organizer "${a.organizer}"` : ""}`);

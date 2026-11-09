@@ -226,7 +226,7 @@ export const BRAND_HANDLERS: Record<string, Handler> = {
       const { front, order, body } = parseFront(current);
       const base = md.slice(0, -3);
       const file = `${base}.${brand}${variant === "integrated" ? ".integrated" : ""}.html`;
-      const key = `${event}/${base}-${brand}-${variant}-${crypto.randomUUID().slice(0, 12)}.html`;
+      const key = `${env.MEDIA_PREFIX ?? ""}${event}/${base}-${brand}-${variant}-${crypto.randomUUID().slice(0, 12)}.html`;
       await env.MEDIA.put(key, html, { httpMetadata: { contentType: "text/html; charset=utf-8" }, customMetadata: { recreated_by: person.name, event } });
       const url = `${env.PUBLIC_URL}/media/${key}`;
       await ws.fs.promises.writeFile(`${DIR}/${file}`, html);

@@ -19,7 +19,7 @@
 // contact.
 
 import type { Env, Handler, Person } from "./index";
-import { slug, now, write } from "./index";
+import { slug, now, write, repoFor } from "./index";
 import { addSlides, captureToken } from "./slides";
 import { connectorKey, personForCaptureToken, sha256 } from "./team";
 
@@ -87,6 +87,12 @@ async function redeem(env: Env, token: string): Promise<{ ticket: Ticket; person
   return { ticket, person: who.person };
 }
 
+/** The team a valid upload link belongs to, unless it's the home team's. */
+export async function uploadTeam(env: Env, token: string): Promise<string | undefined> {
+  const redeemed = await redeem(env, token);
+  return typeof redeemed === "string" ? undefined : redeemed.person.team;
+}
+
 const json = (body: unknown, status = 200) => Response.json(body, { status });
 
 // ---------------------------------------------------------------- endpoint
@@ -136,7 +142,7 @@ export async function handleUpload(request: Request, env: Env, token: string): P
       return json({ ok: true, saved, summary, next: "Back in Claude: view_slide, then save_slide_notes." });
     }
     const t = now(env);
-    const key = `${ticket.ev}/uploads/${ticket.k}/${t.date}-${ticket.base}-${crypto.randomUUID().slice(0, 12)}.${spec.ext}`;
+    const key = `${env.MEDIA_PREFIX ?? ""}${ticket.ev}/uploads/${ticket.k}/${t.date}-${ticket.base}-${crypto.randomUUID().slice(0, 12)}.${spec.ext}`;
     await env.MEDIA.put(key, bytes, { httpMetadata: { contentType: spec.type }, customMetadata: { uploaded_by: person.name, event: ticket.ev, kind: ticket.k } });
     const url = `${env.PUBLIC_URL || origin}/media/${key}`;
     return json({ ok: true, url, kb: Math.round(bytes.length / 1024), next: "Put this URL in the contact or note it belongs to." });
@@ -189,6 +195,7 @@ export const UPLOAD_HANDLERS: Record<string, Handler> = {
       f,
       base: slug(filename.replace(/\.[^.]+$/, "")).slice(0, 40) || kind,
     };
+    repoFor(env, ticket.ev);
     if (kind === "slide") {
       if (args?.session) ticket.s = String(args.session).slice(0, 200);
       if (args?.speaker) ticket.sp = String(args.speaker).slice(0, 200);

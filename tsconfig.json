@@ -3,10 +3,16 @@
     "target": "es2022",
     "module": "es2022",
     "moduleResolution": "bundler",
-    "lib": ["esnext", "webworker"],
+    "lib": [
+      "esnext"
+    ],
     "strict": true,
     "skipLibCheck": true,
-    "noEmit": true
+    "noEmit": true,
+    "types": []
   },
-  "include": ["src"]
+  "include": [
+    "src",
+    "worker-configuration.d.ts"
+  ]
 }
