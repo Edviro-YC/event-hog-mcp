@@ -59,7 +59,7 @@ export interface Person {
   emails?: string[];
   /** The address their CRM (HubSpot) knows them by: owners and "created by" match on it. */
   crm_email?: string;
-  /** Can add and remove teammates from chat. Only honored in the PEOPLE secret. */
+  /** Can add and remove teammates from chat. From the PEOPLE secret, or members.admin (set with wrangler) for a self-serve connector. */
   admin?: boolean;
   /** The connector key this request came in on. */
   key?: string;

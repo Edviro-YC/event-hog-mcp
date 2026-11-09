@@ -293,8 +293,10 @@ skills), which a model can fail to follow.
 
 **Enforced in code:**
 - Every write is a commit authored as the caller (`PEOPLE` maps key → name and email).
-- Only people marked `"admin": true` in `PEOPLE` can add or remove teammates.
-  People added from chat are never admins, and can't be given a teammate's
+- Only admins can add or remove teammates: people marked `"admin": true` in
+  `PEOPLE`, or landing-page connectors whose `members.admin` is 1. Only
+  whoever runs the deployment sets that, with `wrangler d1 execute`; no tool
+  writes it. People added from chat are never admins, and can't be given a teammate's
   email. Their keys are stored only as hashes, and `list_people` never shows
   a key.
 - `query_crm` refuses to read `connector_people` and `members` (where keys
@@ -394,7 +396,10 @@ npx wrangler d1 migrations apply agnostic-crm --remote
    key → `{ "name", "email", "emails"?, "crm_email"?, "admin"? }` (keys from
    `openssl rand -hex 24`). Mark at least one person `"admin": true` so they
    can add teammates from chat (`add_person`), which stores them in D1
-   instead of this secret.
+   instead of this secret. (`PEOPLE` can't be read back, so to make an admin
+   later without re-entering it, a connector that joined from the landing
+   page can be marked instead: `UPDATE members SET admin = 1 WHERE
+   self_serve = 1 AND email = '…'` with `npx wrangler d1 execute <db> --remote`.)
 4. Optional: `npx wrangler secret put CONTEXT_DEV_API_KEY` (a key from the
    [context.dev dashboard](https://www.context.dev/dashboard/api-keys)) to
    turn on `enrich_people`.
