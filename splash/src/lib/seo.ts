@@ -38,9 +38,9 @@ export const STATIC_SEO = {
   siteName: 'event-hog',
 
   root: {
-    title: 'event-hog: work the room, keep everything',
+    title: 'event-hog: shared conference notes for your team',
     description:
-      "A shared workspace for a team working a conference, inside Claude or Codex. Prep before, contacts, notes and slides during, follow-ups after. Plain markdown files first; Cloudflare and your CRM when you want them. Open source.",
+      "A shared notebook for your team at a conference, inside Claude, ChatGPT, Cursor or Codex. Log who you met, keep slides and notes, and follow up after. Open source.",
   },
 
   changelog: {
