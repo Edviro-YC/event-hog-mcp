@@ -1,24 +1,23 @@
 ---
 /**
- * Three-mode toggle: light (default — show floor), dark (after hours),
- * vibrant (keynote). Persists to localStorage. The inline script in BaseLayout
+ * Three-mode toggle: light (default), dark, vibrant. Persists to localStorage. The inline script in BaseLayout
  * resolves the persisted mode pre-paint so there's no FOUC.
  */
 ---
 
 <div class="mode-toggle" role="group" aria-label="Color mode">
-  <button type="button" data-mode="light" aria-label="Show floor (light)">
+  <button type="button" data-mode="light" aria-label="Light">
     <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2">
       <circle cx="12" cy="12" r="4" />
       <path d="M12 2v2M12 20v2M2 12h2M20 12h2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41" />
     </svg>
   </button>
-  <button type="button" data-mode="dark" aria-label="After hours (dark)">
+  <button type="button" data-mode="dark" aria-label="Dark">
     <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2">
       <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
     </svg>
   </button>
-  <button type="button" data-mode="vibrant" aria-label="Keynote (vibrant)">
+  <button type="button" data-mode="vibrant" aria-label="Vibrant">
     <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2">
       <path d="M12 2l2.39 4.84L20 8l-4 3.9.94 5.5L12 14.77 7.06 17.4 8 11.9 4 8l5.61-1.16L12 2z" />
     </svg>
