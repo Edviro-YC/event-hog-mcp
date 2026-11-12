@@ -24,8 +24,30 @@ const PHASES = [
     items: [
       'See who you met, who met them, and what you promised.',
       'Send contacts to HubSpot after you approve each one, or export a CSV.',
+      'Fix a misspelled name or a wrong email. The old value stays in the history.',
       'Draft posts about the event. Nothing is posted for you.',
     ],
+  },
+];
+
+const WAYS = [
+  {
+    name: 'Use ours',
+    items: [
+      'Copy the prompt above. Nothing to deploy.',
+      "Runs on our Cloudflare account. Your team's events are private to your team.",
+      'Attendee lookup is included.',
+    ],
+    cta: { label: 'Get connected', href: '#connect' },
+  },
+  {
+    name: 'Run your own',
+    items: [
+      'The same server on your own Cloudflare account. Your data never reaches us.',
+      'Needs Workers, Artifacts, D1 and R2.',
+      'Your own people and your own lookup key. Fork it and change anything.',
+    ],
+    cta: { label: 'Deploy your own', href: `${REPO_URL}#deploy-your-own` },
   },
 ];
 
@@ -65,7 +87,7 @@ const PROMPT = [
             <a class="btn btn-primary" href="#connect">Get connected</a>
             <a class="btn" href={REPO_URL} target="_blank" rel="noopener">GitHub</a>
           </div>
-          <p class="hero__fine">Open source. Use ours, or run your own copy.</p>
+          <p class="hero__fine">Open source. <a href="#run">Use ours, or run your own copy.</a></p>
         </div>
 
         <div class="hero__badge-wrap" aria-hidden="true">
@@ -143,22 +165,53 @@ const PROMPT = [
       </div>
     </section>
 
+    <section class="section" id="run">
+      <div class="container">
+        <h2 class="section__title">How it runs</h2>
+        <div class="data__body">
+          <p>
+            event-hog is one Cloudflare Worker. Each event is its own git repo on
+            <a href="https://developers.cloudflare.com/artifacts/" target="_blank" rel="noopener">Cloudflare Artifacts</a>,
+            git storage built for agents. Every save your agent makes is a
+            commit signed by you, so the whole team works from one history and a
+            teammate's save never overwrites yours.
+          </p>
+          <p>
+            Because it's plain git, you can download an event and open it in
+            Obsidian or any editor. A database keeps the same contacts ready to
+            query, and photos live in Cloudflare's file storage.
+          </p>
+        </div>
+        <div class="ways">
+          {WAYS.map((w, i) => (
+            <div class="way">
+              <h3 class="way__name">{w.name}</h3>
+              <ul>{w.items.map((item) => <li>{item}</li>)}</ul>
+              <a
+                class={`btn ${i === 0 ? 'btn-primary' : ''}`}
+                href={w.cta.href}
+                {...(w.cta.href.startsWith('http') ? { target: '_blank', rel: 'noopener' } : {})}
+              >{w.cta.label}</a>
+            </div>
+          ))}
+        </div>
+      </div>
+    </section>
+
     <section class="section" id="data">
       <div class="container data">
         <h2 class="section__title">Your data</h2>
         <div class="data__body">
           <p>
-            Each event is a git repo of plain markdown files: one per person
-            you met, plus a CSV of everyone. Every change is a commit by
-            whoever made it, and nothing gets overwritten.
+            Each event is a folder of plain markdown files: one per person you
+            met, plus a CSV of everyone. Nothing is lost: a correction keeps
+            the old value, and every version stays in the history.
           </p>
           <p>
             Only people you invite can see your team's events. event-hog never
             posts, sends email, or writes to your CRM on its own.
           </p>
           <p>
-            Want it on your own Cloudflare account instead?
-            <a href={`${REPO_URL}#deploy-your-own`} target="_blank" rel="noopener">Deploy your own</a>.
             Read the <a href={`${REPO_URL}/blob/main/DATA-POLICY.md`} target="_blank" rel="noopener">data policy</a>.
           </p>
         </div>
@@ -383,13 +436,32 @@ const PROMPT = [
   .phase ul { display: grid; gap: var(--space-3); }
   .phase li { color: var(--color-text-soft); }
 
-  /* ─── Your data ──────────────────────────────────────────────────── */
+  /* ─── How it runs, your data ─────────────────────────────────────── */
   .data__body { display: grid; gap: var(--space-4); max-width: 62ch; color: var(--color-text-soft); font-size: 1.05rem; }
+  .ways {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--space-8);
+    max-width: 960px;
+    margin-top: var(--space-10);
+  }
+  .way {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-5);
+    padding: var(--space-6);
+    background: var(--color-bg-card);
+    border: 3px solid var(--color-border-strong);
+  }
+  .way__name { font-size: 1.8rem; }
+  .way ul { display: grid; gap: var(--space-3); flex: 1; }
+  .way li { color: var(--color-text-soft); }
+  .way .btn { align-self: start; }
 
   @media (max-width: 980px) {
     .hero__grid, .reg { grid-template-columns: 1fr; }
     .hero__badge-wrap { margin-top: 0; }
-    .phases { grid-template-columns: 1fr; gap: var(--space-6); }
+    .phases, .ways { grid-template-columns: 1fr; gap: var(--space-6); }
   }
   @media (max-width: 640px) {
     .lanyard { transform: scale(0.8); }
