@@ -29,6 +29,8 @@ const MENU: Record<Phase, Offer[]> = {
     { say: "Draft follow-up emails for my A-list", tools: "draft-follow-up-emails, save_draft" },
     { say: "Put my contacts and meetings in HubSpot", tools: "crm_queue, mark_crm_synced, mark_touchpoints_synced" },
     { say: "Give me a CRM import file instead", tools: "export_hubspot_csv" },
+    { say: "Fix a wrong email or name (or remove someone we didn't meet)", tools: "correct_contact, remove_contact" },
+    { say: "Open this event in Obsidian", tools: "clone_link" },
     { say: "Recreate that slide in our brand", tools: "recreate-slides-in-brand, save_recreated_slide" },
     { say: "Turn my notes into a LinkedIn post", tools: "save_draft" },
   ],
@@ -97,4 +99,7 @@ export const NEXT_STEPS: Record<string, string> = {
   export_hubspot_csv: next("Draft the follow-up emails", "Connect HubSpot so you can push them directly"),
   query_crm: next("Log someone new", "Who should I follow up with?", "Who should I find next?"),
   search: next("Log someone new", "Who should I find next?"),
+  correct_contact: next("Who's still pending for HubSpot?", "Draft the follow-up emails", "Open this event in Obsidian"),
+  remove_contact: next("Who should I find next?", "Who's still pending for HubSpot?"),
+  clone_link: next("Who should I follow up with first?", "Draft the follow-up emails"),
 };

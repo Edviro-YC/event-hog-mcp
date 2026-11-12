@@ -198,10 +198,11 @@ Three layers, each with one job (the full reasoning is in
 Plus an R2 bucket, `event-hog-media`, for images and PDFs, served at
 `/media/<key>`. Repos hold text and the image's URL, never image bytes.
 
-On every tool call the Worker clones the event repo into memory
-(isomorphic-git), changes files, commits as the caller, and pushes. If a
-teammate's push lands first, it retries from a fresh clone (up to 5 times).
-Writes add files or append to them, so a retry never clobbers anything.
+On every tool call the Worker clones the event repo's latest commit into
+memory (isomorphic-git; `recent_activity` alone fetches more history),
+changes files, commits as the caller, and pushes. If a teammate's push lands
+first, it retries from a fresh clone (up to 5 times), re-applying the change
+to what's there now, so a retry never clobbers anything.
 
 ### Teams
 
@@ -278,7 +279,9 @@ reply with two or three of them, so nobody has to know the tool list.
 
 **Workspace:** `event_brief`, `list_events`, `new_event`,
 `whoami`, `list_files`, `read_file`, `search`, `recent_activity`,
-`append_to_file`, `add_note`.
+`append_to_file`, `add_note`, `clone_link` (a read-only `git clone` command
+and a refresh command, good for an hour, to browse the event in Obsidian or
+any editor; edits there stay on that computer).
 
 **Team:** `list_people` (everyone on the caller's team, never their keys),
 and for admins `add_person` (makes a teammate's connector URL) and
@@ -286,9 +289,12 @@ and for admins `add_person` (makes a teammate's connector URL) and
 Deleting a team).
 
 **Contacts and CRM:** `log_contact` (appends to an existing contact matched by
-email, then name and company), `contacts_csv`, `query_crm`, `relate_orgs`,
-`define_location`, `link_location`, `who_is_in`, `crm_queue`,
-`mark_crm_synced`, `export_hubspot_csv`.
+email, then name and company), `correct_contact` (fixes a wrong field and
+records the old value and why; renames the file if the name or company
+changes), `remove_contact` (takes out someone who wasn't met, after a
+preview), `contacts_csv`, `query_crm`, `relate_orgs`, `define_location`,
+`link_location`, `who_is_in`, `crm_queue`, `mark_crm_synced`,
+`export_hubspot_csv`.
 
 `crm_queue` and `export_hubspot_csv` cover everyone the team met at the event
 by default. `met_by` narrows them to the contacts certain people met
@@ -339,8 +345,12 @@ skills), which a model can fail to follow.
   profile saved with `save_my_profile` never grants access by itself, so
   taking someone out of `PEOPLE`, or `remove_person`, locks them out.
 - Contact and note writes add or append; existing contact fields are filled
-  when blank, never overwritten. Slide notes that already exist get "another
-  take", not a replacement.
+  when blank, never overwritten unless someone corrects them on purpose with
+  `correct_contact`, which needs a reason and adds a line with the old value.
+  Slide notes that already exist get "another take", not a replacement.
+- `remove_contact` only previews until it's called again with the same path
+  as `confirm`, and refuses a contact a teammate also logged unless the
+  caller is an admin. Git history keeps the file, and HubSpot isn't touched.
 - `mark_crm_synced` records whatever HubSpot ID it's given. It does **not**
   check HubSpot.
 - Recreated slides are rejected if they contain `<script>` or lack a credit
@@ -389,6 +399,9 @@ team can use it, never looked at or used commercially.
   wouldn't share by link.
 - **`config/skills.json` is served to every connector user.** Settings only,
   never credentials.
+- **`clone_link` puts a token in the chat.** It's read-only, limited to that
+  one event's repo, and expires in an hour, but it stays in the conversation's
+  history. The command also shows the Cloudflare account id and repo name.
 
 ## Known gaps (for 0.1.0)
 
@@ -397,8 +410,8 @@ team can use it, never looked at or used commercially.
   on request).
 - "CRM-agnostic" is half true: the database model is ours, but the sync step
   (`hubspot_status`, `crm_queue`, `export_hubspot_csv`) only knows HubSpot.
-- Every call clones the whole event repo. Fine for one event's worth of
-  text; slower as repos grow.
+- Every call downloads the event's current files (the latest commit, not
+  the history). Fine for one event's worth of text; slower as the files grow.
 - The used-upload-link marker is check-then-write, not atomic.
 - `event-prep` isn't in `kit/` yet. It lives in
   [lossless-agent-skills](https://github.com/lossless-group/lossless-agent-skills),

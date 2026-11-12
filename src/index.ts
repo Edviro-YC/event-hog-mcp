@@ -5,15 +5,15 @@
 // URL, so every write is a git commit authored by the person who made it.
 //
 // Reads and writes both go through git: the Artifacts binding manages repos and
-// mints tokens, but can't write files, so each request clones the repo into an
-// in-memory filesystem with isomorphic-git, works on it, and (for writes) commits
-// and pushes. A push rejected because a teammate pushed first is retried from a
-// fresh clone. Writes add files or append to them, so a retry just re-applies.
+// mints tokens, but can't write files, so each request clones the latest commit
+// into an in-memory filesystem with isomorphic-git, works on it, and (for writes)
+// commits and pushes. A push rejected because a teammate pushed first is retried
+// from a fresh clone, and the change is re-applied to what's there now.
 
 import git from "isomorphic-git";
 import http from "isomorphic-git/http/web";
 import { MemoryFS } from "./memory-fs";
-import { CRM_TOOLS, CRM_HANDLERS, recordContact, recordCrmLink } from "./crm";
+import { CRM_TOOLS, CRM_HANDLERS, recordContact, recordCrmLink, correctContact, removeContact } from "./crm";
 import { LOCATION_TOOLS, LOCATION_HANDLERS } from "./locations";
 import { SKILL_TOOLS, SKILL_HANDLERS, SKILL_PROMPTS } from "./skills";
 import { STARTER_TOOLS, STARTER_HANDLERS, STARTER_PROMPTS, STARTER_NUDGES } from "./starters";
@@ -346,7 +346,9 @@ export async function createRepo(
   }
 }
 
-export async function open(env: Env, event: string, scope: "read" | "write", space: Space = "event"): Promise<Workspace> {
+// Fetches the latest `depth` commits: the current files, and only as much
+// history as the caller reads (recent_activity).
+export async function open(env: Env, event: string, scope: "read" | "write", space: Space = "event", depth = 1): Promise<Workspace> {
   const ns = space === "brain" ? env.BRAIN_NAMESPACE : env.NAMESPACE;
   const name = space === "brain" ? event : repoFor(env, event);
   let repo: any;
@@ -367,7 +369,7 @@ export async function open(env: Env, event: string, scope: "read" | "write", spa
     const secret = String(token.plaintext).split("?expires=")[0];
     const onAuth = () => ({ username: "x", password: secret });
     const fs = new MemoryFS();
-    await git.clone({ fs, http, dir: DIR, url: remote, ref: "main", singleBranch: true, onAuth });
+    await git.clone({ fs, http, dir: DIR, url: remote, ref: "main", singleBranch: true, depth, onAuth });
     return { fs, remote, onAuth };
   } finally {
     repo?.[Symbol.dispose]?.();
@@ -403,13 +405,13 @@ export async function walk(ws: Workspace, dir = ""): Promise<string[]> {
 
 // Clone, apply `change`, commit as `person`, push. Retries from a fresh clone when
 // a teammate's push lands first. `change` writes files and returns the paths it
-// touched plus a summary for the caller.
+// touched (and any it deleted) plus a summary for the caller.
 export async function write(
   env: Env,
   event: string,
   person: Person,
   message: string,
-  change: (ws: Workspace) => Promise<{ paths: string[]; summary: string }>,
+  change: (ws: Workspace) => Promise<{ paths: string[]; removed?: string[]; summary: string }>,
   // Runs only after the push lands, so git stays the record; a failure here is
   // reported, not retried, and never undoes the commit.
   after?: (oid: string) => Promise<string>,
@@ -418,8 +420,9 @@ export async function write(
   let lastError: unknown;
   for (let attempt = 0; attempt < 5; attempt++) {
     const ws = await open(env, event, "write", space);
-    const { paths, summary } = await change(ws);
+    const { paths, removed, summary } = await change(ws);
     for (const filepath of paths) await git.add({ fs: ws.fs, dir: DIR, filepath });
+    for (const filepath of removed ?? []) await git.remove({ fs: ws.fs, dir: DIR, filepath });
     const oid = await git.commit({
       fs: ws.fs,
       dir: DIR,
@@ -709,6 +712,13 @@ const BASE_TOOLS = [
     annotations: { readOnlyHint: true },
   },
   {
+    name: "clone_link",
+    description:
+      "A read-only copy of the event workspace on the person's computer, to browse in Obsidian or any editor: a git command to paste into a terminal, a second one to refresh the copy later, and how to open it as an Obsidian vault. Both commands work for one hour; ask again for fresh ones. Edits made in the copy stay on that computer: anything for the team goes through the tools.",
+    inputSchema: { type: "object", properties: { ...eventArg } },
+    annotations: { readOnlyHint: true },
+  },
+  {
     name: "search",
     description:
       "Case-insensitive text search across every file in the event workspace. Use it before logging a contact, or to answer 'who has met someone from X?'.",
@@ -742,6 +752,42 @@ const BASE_TOOLS = [
         ...eventArg,
       },
       required: ["name", "notes"],
+    },
+  },
+  {
+    name: "correct_contact",
+    description:
+      "Fix a wrong field on a logged contact: a misspelled name, the wrong company, an email typo. Replaces the value in the file, the contacts CSV and the database, and adds a line to the contact saying who changed what from what, and why (git keeps the old version too). Renames the file when the name or company changes. Pass only the fields to change; an empty string clears one. For a new conversation use log_contact instead.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        path: { type: "string", description: "The contact file, e.g. contacts/jane-doe--acme.md" },
+        reason: { type: "string", description: "Where the right value comes from: \"verified in HubSpot\", \"speaker list spells it Kenney\"" },
+        name: { type: "string" },
+        company: { type: "string" },
+        title: { type: "string" },
+        email: { type: "string" },
+        phone: { type: "string" },
+        linkedin: { type: "string" },
+        priority: { type: "string" },
+        ...eventArg,
+      },
+      required: ["path", "reason"],
+    },
+  },
+  {
+    name: "remove_contact",
+    description:
+      "Take out a contact who was logged but not actually met (a research target, a test, the wrong person). Without confirm, shows what would go: the conversations and who logged them. With confirm set to the same path, removes the file and its conversations at this event from the database, so a target shows as not met again. Refuses if a teammate also logged a conversation with them, unless the caller is an admin. Confirm with the person first. Git history keeps the file, so this isn't erasure; HubSpot isn't touched.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        path: { type: "string", description: "The contact file, e.g. contacts/jane-doe--acme.md" },
+        reason: { type: "string", description: "Why: \"never met, was a speaker target\"" },
+        confirm: { type: "string", description: "The same path, once the person has agreed" },
+        ...eventArg,
+      },
+      required: ["path"],
     },
   },
   {
@@ -912,6 +958,31 @@ const HANDLERS: Record<string, Handler> = {
     return text;
   },
 
+  async clone_link(args, env) {
+    const event = ev(args, env);
+    const name = repoFor(env, event);
+    let repo: any;
+    try {
+      repo = await env.ARTIFACTS.get(name);
+    } catch {
+      throw new Error(noEvent(event));
+    }
+    try {
+      const info = await repo.info();
+      const remote: string = info?.remote ?? `https://${env.ACCOUNT_ID}.artifacts.cloudflare.net/git/${env.NAMESPACE}/${name}.git`;
+      const token = await repo.createToken("read", 3600);
+      const auth = `git -c http.extraHeader="Authorization: Bearer ${token.plaintext}"`;
+      return [
+        `First time:  ${auth} clone ${remote} ${event}`,
+        `To refresh:  cd ${event} && ${auth} pull`,
+        `In Obsidian: Open folder as vault, and pick the ${event} folder.`,
+        "Read-only, and both commands work for one hour. Notes typed there stay on your machine; to add something for the team, tell your agent.",
+      ].join("\n");
+    } finally {
+      repo?.[Symbol.dispose]?.();
+    }
+  },
+
   async search(args, env) {
     const q = String(args.query ?? "").toLowerCase().trim();
     if (!q) throw new Error("Give a search query.");
@@ -927,8 +998,8 @@ const HANDLERS: Record<string, Handler> = {
   },
 
   async recent_activity(args, env) {
-    const ws = await open(env, ev(args, env), "read");
     const limit = Math.min(Math.max(Number(args?.limit) || 15, 1), 50);
+    const ws = await open(env, ev(args, env), "read", "event", limit);
     const log = await git.log({ fs: ws.fs, dir: DIR, depth: limit });
     const fmt = new Intl.DateTimeFormat("en-US", {
       timeZone: env.EVENT_TIMEZONE,
@@ -1192,7 +1263,121 @@ const HANDLERS: Record<string, Handler> = {
       return { paths: [path, CONTACTS_CSV], summary: `${path} marked as in HubSpot (${args.hubspot_id}).` };
     }, () => recordCrmLink(env, person, path, String(args.hubspot_id), args.hubspot_url ? String(args.hubspot_url) : null));
   },
+
+  async correct_contact(args, env, person) {
+    const path = contactPath(args.path);
+    const reason = String(args.reason ?? "").trim();
+    if (!reason) throw new Error("Say where the right value comes from (reason), so teammates can trust the correction.");
+    const event = ev(args, env);
+    let newPath = path;
+    let before: Record<string, string> = {};
+    let after: Record<string, string> = {};
+    let synced = "";
+
+    const saved = await write(env, event, person, `correct: ${path}`, async (ws) => {
+      const text = await read(ws, path);
+      if (text === null) throw new Error(`No contact at ${path}. Try search or list_files contacts.`);
+      const parsed = parseFront(text);
+      before = {};
+      after = {};
+      for (const k of CONTACT_FIELDS) {
+        if (args[k] === undefined || args[k] === null) continue;
+        const value = String(args[k]).trim();
+        if (value === String(parsed.front[k] ?? "")) continue;
+        before[k] = String(parsed.front[k] ?? "");
+        after[k] = value;
+        parsed.front[k] = value;
+      }
+      if (!Object.keys(after).length) throw new Error(`Nothing to correct: ${path} already has those values.`);
+      if (!parsed.front.name) throw new Error("A contact needs a name; it can't be cleared.");
+
+      const { name, company, title } = parsed.front;
+      const fileName = company ? `${slug(name)}--${slug(company)}` : slug(name);
+      if (!slug(name)) throw new Error("That name has no letters or digits to file it under.");
+      newPath = "name" in after || "company" in after ? `contacts/${fileName}.md` : path;
+      const files = (await walk(ws, "contacts")).filter((f) => f.endsWith(".md") && f !== path);
+      if (newPath !== path && files.includes(newPath)) {
+        throw new Error(`There's already a contact at ${newPath}. The two look like the same person: read both before changing anything.`);
+      }
+      if (after.email) {
+        for (const f of files) {
+          if (String(parseFront((await read(ws, f)) ?? "").front.email ?? "").toLowerCase() === after.email.toLowerCase()) {
+            throw new Error(`${f} already has ${after.email}. The two look like the same person: read both before changing anything.`);
+          }
+        }
+      }
+
+      const heading = `# ${name}${company ? ` · ${company}` : ""}${title ? `\n\n${title}` : ""}`;
+      const body = parsed.body.replace(/^\n?# [^\n]*\n(\n[^\n#][^\n]*\n)?/, `\n${heading}\n`);
+      const changes = Object.keys(after).map((k) => `${k} from ${before[k] ? `"${before[k]}"` : "blank"} to ${after[k] ? `"${after[k]}"` : "blank"}`);
+      const t = now(env);
+      const line = `> ${t.stamp} · ${person.name}: Corrected ${changes.join(", ")} (${reason}).\n`;
+      await ws.fs.promises.writeFile(`${DIR}/${newPath}`, renderFront(parsed.front, parsed.order) + body.replace(/\s*$/, "\n\n") + line);
+      if (newPath !== path) await ws.fs.promises.unlink(`${DIR}/${path}`);
+      await refreshContactsCsv(ws);
+      synced = parsed.front.hubspot_status === "synced" ? parsed.front.hubspot_id || "id unknown" : "";
+      return {
+        paths: [newPath, CONTACTS_CSV],
+        removed: newPath !== path ? [path] : [],
+        summary: `Corrected ${changes.join(", ")} on ${newPath}${newPath !== path ? ` (renamed from ${path})` : ""}.`,
+      };
+    }, (oid) => correctContact(env, person, event, path, newPath, before, after, oid));
+    return synced ? `${saved}\nThis contact is in HubSpot (${synced}): change the same field(s) there too.` : saved;
+  },
+
+  async remove_contact(args, env, person) {
+    const path = contactPath(args.path);
+    const event = ev(args, env);
+    const describe = (text: string) => {
+      const { front, body } = parseFront(text);
+      const loggers = [...new Set([front.first_logged_by, ...[...body.matchAll(/^### .+? · (.+)$/gm)].map((m) => m[1].trim())].filter(Boolean))];
+      const others = loggers.filter((n) => n.toLowerCase() !== person.name.toLowerCase());
+      const talks = (body.match(/^### /gm) ?? []).length;
+      const label = `${front.name}${front.company ? ` (${front.company})` : ""}`;
+      return { front, loggers, others, talks, label };
+    };
+    const guard = (others: string[]) =>
+      others.length && person.admin !== true
+        ? `${others.join(" and ")} also logged ${others.length > 1 ? "conversations" : "a conversation"} with this person, so only an admin can remove the contact. Ask them, or use correct_contact if a field is wrong.`
+        : "";
+
+    if (args.confirm !== path) {
+      const text = await read(await open(env, event, "read"), path);
+      if (text === null) throw new Error(`No contact at ${path}. Try search or list_files contacts.`);
+      const d = describe(text);
+      const refused = guard(d.others);
+      const hubspot = d.front.hubspot_status === "synced" ? ` It's in HubSpot (${d.front.hubspot_id}); that record stays, so delete it there if it should go.` : "";
+      return [
+        `${d.label}: ${d.talks} conversation(s), logged by ${d.loggers.join(", ") || "nobody named"}.${hubspot}`,
+        refused || `To remove it, check with the person, then call remove_contact again with confirm: "${path}" and a reason. The file leaves the workspace and its conversations leave the database; git history keeps it.`,
+      ].join("\n\n");
+    }
+
+    const reason = String(args.reason ?? "").trim();
+    if (!reason) throw new Error("Give a reason for removing this contact (it goes in the history).");
+    let label = path;
+    let hubspot = "";
+    const saved = await write(env, event, person, `remove: ${path}: ${reason}`, async (ws) => {
+      const text = await read(ws, path);
+      if (text === null) throw new Error(`No contact at ${path}: someone may have removed or renamed it already.`);
+      const d = describe(text);
+      const refused = guard(d.others);
+      if (refused) throw new Error(refused);
+      label = d.label;
+      hubspot = d.front.hubspot_status === "synced" ? d.front.hubspot_id || "id unknown" : "";
+      await ws.fs.promises.unlink(`${DIR}/${path}`);
+      await refreshContactsCsv(ws);
+      return { paths: [CONTACTS_CSV], removed: [path], summary: `Removed ${label} (${path}): ${reason}.` };
+    }, () => removeContact(env, event, path));
+    return hubspot ? `${saved}\nThe HubSpot record (${hubspot}) is still there; delete it in HubSpot if it should go.` : saved;
+  },
 };
+
+function contactPath(p: unknown): string {
+  const path = clean(String(p ?? ""));
+  if (!path.startsWith("contacts/") || !path.endsWith(".md")) throw new Error("That tool takes a contact file, e.g. contacts/jane-doe--acme.md.");
+  return path;
+}
 
 async function findContact(ws: Workspace, args: any, nameSlug: string, fileName: string): Promise<string | null> {
   const files = (await walk(ws, "contacts")).filter((f) => f.endsWith(".md"));

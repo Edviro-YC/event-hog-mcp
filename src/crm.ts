@@ -215,6 +215,154 @@ export async function recordCrmLink(
   return "agnostic-crm: HubSpot link recorded.";
 }
 
+async function instanceId(env: Env, eventSlug: string): Promise<string | null> {
+  const row = await env.CRM.prepare("SELECT id FROM event_instances WHERE slug = ?").bind(eventSlug).first();
+  return (row?.id as string) ?? null;
+}
+
+// correct_contact: the file's fields changed from `before` to `after` (only the
+// keys that changed). Corrections replace values on the person; the
+// observations keep both the old fact and the corrected one.
+export async function correctContact(
+  env: Env,
+  person: Person,
+  eventSlug: string,
+  oldPath: string,
+  newPath: string,
+  before: Record<string, string>,
+  after: Record<string, string>,
+  oid: string,
+): Promise<string> {
+  const inst = await instanceId(env, eventSlug);
+  const row = inst
+    ? await env.CRM.prepare(
+        "SELECT ip.person_id FROM interactions i JOIN interaction_participants ip ON ip.interaction_id = i.id WHERE i.event_instance_id = ? AND i.artifact_path = ? AND ip.role = 'contact' LIMIT 1",
+      )
+        .bind(inst, oldPath)
+        .first()
+    : null;
+  if (!row) return "agnostic-crm: no person is linked to that file yet, so only the file was updated.";
+  const personId = row.person_id as string;
+  const at = nowIso();
+  const source = `event-hog:${eventSlug}@${oid.slice(0, 12)}:${newPath}`;
+  const has = (k: string) => k in after;
+  const stmts: any[] = [
+    env.CRM.prepare("UPDATE persons SET last_touched_by = ? WHERE id = ?").bind(person.name, personId),
+  ];
+  const notes: string[] = [];
+
+  if (has("name") && after.name) stmts.push(env.CRM.prepare("UPDATE persons SET name = ? WHERE id = ?").bind(after.name, personId));
+  if (has("title")) stmts.push(env.CRM.prepare("UPDATE persons SET headline = ? WHERE id = ?").bind(after.title || null, personId));
+  if (has("linkedin")) stmts.push(env.CRM.prepare("UPDATE persons SET linkedin_url = ? WHERE id = ?").bind(after.linkedin || null, personId));
+
+  const norm: Record<string, (v: string) => string> = { email: normEmail, phone: normPhone, linkedin: normLinkedin };
+  for (const kind of ["email", "phone", "linkedin"]) {
+    if (!has(kind)) continue;
+    if (before[kind]) {
+      stmts.push(
+        env.CRM.prepare("DELETE FROM person_identifiers WHERE person_id = ? AND kind = ? AND value = ?").bind(personId, kind, norm[kind](before[kind])),
+      );
+    }
+    if (!after[kind]) continue;
+    const value = norm[kind](after[kind]);
+    const owner = await env.CRM.prepare("SELECT p.name FROM person_identifiers i JOIN persons p ON p.id = i.person_id WHERE i.kind = ? AND i.value = ? AND p.id != ?")
+      .bind(kind, value, personId)
+      .first();
+    if (owner) notes.push(`that ${kind} already belongs to ${owner.name} in the database, so it stays there (they may be the same person)`);
+    stmts.push(env.CRM.prepare("INSERT OR IGNORE INTO person_identifiers (person_id, kind, value, added_at) VALUES (?, ?, ?, ?)").bind(personId, kind, value, at));
+  }
+
+  const title = (has("title") ? after.title : before.title) ?? "";
+  if (has("company")) {
+    const oldOrg = before.company ? await findOrg(env, before.company) : null;
+    if (oldOrg) {
+      stmts.push(
+        env.CRM.prepare("UPDATE affiliations SET ended_at = ? WHERE person_id = ? AND org_id = ? AND ended_at IS NULL").bind(at, personId, oldOrg),
+      );
+    }
+    if (after.company) {
+      const orgId = await ensureOrg(env, after.company, source);
+      stmts.push(
+        env.CRM.prepare("INSERT OR IGNORE INTO affiliations (id, person_id, org_id, kind, added_at, source) VALUES (?, ?, ?, ?, ?, ?)").bind(
+          uuid(),
+          personId,
+          orgId,
+          title,
+          at,
+          source,
+        ),
+        env.CRM.prepare("UPDATE affiliations SET ended_at = NULL WHERE person_id = ? AND org_id = ? AND kind = ?").bind(personId, orgId, title),
+      );
+    }
+  } else if (has("title") && before.company) {
+    const orgId = await findOrg(env, before.company);
+    if (orgId) {
+      stmts.push(
+        env.CRM.prepare("UPDATE OR IGNORE affiliations SET kind = ? WHERE person_id = ? AND org_id = ? AND ended_at IS NULL").bind(title, personId, orgId),
+      );
+    }
+  }
+
+  const facts: [string, string, string | undefined][] = [
+    ["has_name", "name", after.name],
+    ["has_title", "title", after.title],
+    ["affiliated_with", "company", after.company ? slug(after.company) : after.company],
+    ["has_priority", "priority", after.priority],
+  ];
+  for (const [predicate, key, object] of facts) {
+    if (!has(key)) continue;
+    stmts.push(
+      env.CRM.prepare(
+        "INSERT INTO observations (id, subject_type, subject_id, predicate, object, source, observed_at, observed_by, event_instance_id) VALUES (?, 'person', ?, ?, ?, ?, ?, ?, ?)",
+      ).bind(uuid(), personId, predicate, object || null, source, at, person.name, inst),
+    );
+  }
+
+  if (oldPath !== newPath) {
+    stmts.push(env.CRM.prepare("UPDATE interactions SET artifact_path = ? WHERE event_instance_id = ? AND artifact_path = ?").bind(newPath, inst, oldPath));
+  }
+
+  await env.CRM.batch(stmts);
+  return `agnostic-crm: person corrected${notes.length ? `; ${notes.join("; ")}` : ""}.`;
+}
+
+// remove_contact: the file's conversations at this event leave the database,
+// so targets show the person as not met again. The person stays: they may be
+// a target, or met at another event.
+export async function removeContact(env: Env, eventSlug: string, path: string): Promise<string> {
+  const inst = await instanceId(env, eventSlug);
+  if (!inst) return "agnostic-crm: nothing was stored for that file.";
+  const { results } = await env.CRM.prepare(
+    "SELECT i.id, ip.person_id FROM interactions i LEFT JOIN interaction_participants ip ON ip.interaction_id = i.id AND ip.role = 'contact' WHERE i.event_instance_id = ? AND i.artifact_path = ?",
+  )
+    .bind(inst, path)
+    .all();
+  const rows = (results ?? []) as any[];
+  const ids = [...new Set(rows.map((r) => r.id as string))];
+  const persons = [...new Set(rows.map((r) => r.person_id as string).filter(Boolean))];
+  const stmts: any[] = [
+    // D1 caps LIKE patterns at 50 bytes, so match the source's ends directly.
+    env.CRM.prepare(
+      "DELETE FROM observations WHERE subject_type = 'organization' AND predicate = 'met_at' AND event_instance_id = ?1 AND substr(source, 1, length(?2)) = ?2 AND substr(source, -length(?3)) = ?3",
+    ).bind(inst, `event-hog:${eventSlug}@`, `:${path}`),
+  ];
+  if (ids.length) {
+    const marks = ids.map(() => "?").join(",");
+    stmts.push(
+      env.CRM.prepare(`DELETE FROM crm_links WHERE entity_type IN ('interaction', 'follow_up') AND entity_id IN (${marks})`).bind(...ids),
+      env.CRM.prepare(`DELETE FROM interaction_participants WHERE interaction_id IN (${marks})`).bind(...ids),
+      env.CRM.prepare(`DELETE FROM interactions WHERE id IN (${marks})`).bind(...ids),
+    );
+  }
+  for (const p of persons) {
+    stmts.push(
+      env.CRM.prepare("DELETE FROM observations WHERE subject_type = 'person' AND subject_id = ? AND predicate = 'met_at' AND event_instance_id = ?").bind(p, inst),
+    );
+  }
+  await env.CRM.batch(stmts);
+  return `agnostic-crm: removed ${ids.length} conversation(s) at this event; the person stays on record.`;
+}
+
 // ---------------------------------------------------------------- tools
 
 const SCHEMA_NOTE = `Tables: persons(id, name, headline, linkedin_url, first_seen_at, last_seen_at, first_touched_by, last_touched_by); person_identifiers(person_id, kind email|phone|linkedin, value); organizations(id, slug, complete_name, conventional_name, aliases JSON, domains JSON); affiliations(person_id, org_id, kind = title, relevance 0-5, ended_at); org_relations(child_org_id, parent_org_id, rel child_of|peer, kind e.g. partners_with|customer_of|funder_of, description); event_series(id, slug, name, organizer_org_id -> organizations, cadence, website); event_instances(id, series_id, slug = event-hog repo name, name, starts_on, ends_on, venue, city); interactions(id, event_instance_id, occurred_at, logged_by, logged_by_email = their HubSpot address, where_met, notes, follow_up, follow_up_owner, follow_up_done_at, artifact_path); interaction_participants(interaction_id, person_id, role); observations(subject_type person|organization, subject_id, predicate, object, source, observed_at, observed_by, event_instance_id): the provenance log, and where event participation lives (predicates speaker_at, sponsor_of, exhibitor_at, attended, met_at, target, has_priority, has_title, affiliated_with); tags(subject_type, subject_id, tag); crm_links(entity_type, entity_id, system hubspot, external_id, url, synced_at); locations(id, slug, name, kind, aliases JSON); location_edges(parent_id, child_id, mode include|exclude): a graph, use who_is_in for nested lookups; location_links(location_id, subject_type, subject_id, role based_in|office|hq|works_from|covers|venue|from, ended_at).`;

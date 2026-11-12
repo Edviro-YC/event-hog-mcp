@@ -6,10 +6,14 @@
 // Maya copies the landing page's prompt (a fresh key), starts a team, sets up
 // an event, preps, logs people, captures slides, drafts posts, syncs the CRM,
 // and invites Dev. Dev joins with the URL add_person gives, logs the same
-// contact, and is then removed. Every response goes to the log file; checks
+// contact, fixes and removes contacts with Maya (and clones a copy with git),
+// and is then removed. Every response goes to the log file; checks
 // print PASS/FAIL. The home admin key deletes the team at the end.
 
-import { writeFileSync, appendFileSync } from "node:fs";
+import { writeFileSync, appendFileSync, mkdtempSync, existsSync, rmSync } from "node:fs";
+import { execSync } from "node:child_process";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 const [base = "http://localhost:8799", homeKey, logFile = "/tmp/eh-sim.log"] = process.argv.slice(2);
 if (!homeKey) {
@@ -441,6 +445,89 @@ r = await tool(maya, "query_crm", { sql: "SELECT count(*) AS n FROM persons WHER
 check("…and one person in the database", /"n": 1\b/.test(r.text), r.text);
 r = await tool(maya, "contacts_csv", E);
 check("The contacts CSV has every one of them", ["Rush One", "Rush Two", "Rush Three", "Rush Four", "Jordan Lee", "José Núñez-O'Brien"].every((n) => r.text.includes(n)) && (r.text.match(/Jordan Lee/g) ?? []).length === 1, r.text);
+
+// ---------------------------------------------------------------- fixing mistakes
+// A wrong email on a contact already in HubSpot.
+r = await tool(maya, "correct_contact", { path: priyaPath, email: "priya.raman@shipfast.test", reason: "verified in HubSpot", ...E });
+check("correct_contact fixes an email and says to update HubSpot too", !r.error && /HubSpot \(1001\)/.test(r.text), r.text);
+r = await tool(maya, "read_file", { path: priyaPath, ...E });
+check("…the file has the new email and a line with the old one", /email: "priya\.raman@shipfast\.test"/.test(r.text) && /Corrected email from "priya@shipfast\.test" to "priya\.raman@shipfast\.test" \(verified in HubSpot\)/.test(r.text), r.text);
+r = await tool(maya, "contacts_csv", E);
+check("…the CSV has the new email", r.text.includes("priya.raman@shipfast.test") && !r.text.includes("priya@shipfast.test"), r.text);
+r = await tool(maya, "query_crm", { sql: "SELECT value FROM person_identifiers WHERE kind = 'email' AND value LIKE 'priya%'" });
+check("…and the database swapped the identifier", r.text.includes("priya.raman@shipfast.test") && !r.text.includes('"priya@shipfast.test"'), r.text);
+
+// A misspelled name: the file follows the name.
+r = await tool(maya, "correct_contact", { path: "contacts/sam-wu--boxly.md", name: "Samantha Wu", reason: "her badge says Samantha", ...E });
+check("correct_contact renames the file when the name changes", !r.error && r.text.includes("contacts/samantha-wu--boxly.md") && /renamed from contacts\/sam-wu--boxly\.md/.test(r.text), r.text);
+r = await tool(maya, "read_file", { path: "contacts/sam-wu--boxly.md", ...E });
+check("…the old file is gone", r.error, r.text);
+r = await tool(maya, "read_file", { path: "contacts/samantha-wu--boxly.md", ...E });
+check("…the heading has the new name", /^# Samantha Wu · Boxly$/m.test(r.text) && /name: "Samantha Wu"/.test(r.text), r.text);
+r = await tool(maya, "log_contact", { name: "Samantha Wu", company: "Boxly", notes: "Second chat about the SDK.", ...E });
+check("…and logging the corrected name adds to the same contact", /existing contact/.test(r.text) && r.text.includes("contacts/samantha-wu--boxly.md"), r.text);
+r = await tool(maya, "query_crm", { sql: "SELECT p.name, i.artifact_path FROM interactions i JOIN interaction_participants ip ON ip.interaction_id = i.id JOIN persons p ON p.id = ip.person_id WHERE p.name LIKE 'Sam%'" });
+check("…with one person in the database, renamed, and both conversations on the new file", (r.text.match(/samantha-wu--boxly\.md/g) ?? []).length === 2 && !r.text.includes("sam-wu--boxly") && !/"Sam Wu"/.test(r.text), r.text);
+
+r = await tool(maya, "correct_contact", { path: alex1, company: "Boxly", reason: "test", ...E });
+check("correct_contact refuses a rename onto another contact", r.error && /same person/.test(r.text), r.text);
+r = await tool(maya, "correct_contact", { path: "contacts/tom-becker--cartco.md", priority: "A", reason: "test", ...E });
+check("correct_contact refuses when nothing changes", r.error && /Nothing to correct/.test(r.text), r.text);
+r = await tool(maya, "correct_contact", { path: "contacts/tom-becker--cartco.md", title: "VP Automation", ...E });
+check("correct_contact needs a reason", r.error, r.text);
+
+// A copy for Obsidian, refreshed after a removal below.
+r = await tool(maya, "clone_link", E);
+const cloneCmd = r.text.match(/^First time:\s+(.+)$/m)?.[1];
+const pullCmd = r.text.match(/^To refresh:\s+(.+)$/m)?.[1];
+check("clone_link gives a clone command, a refresh command and the Obsidian step", !!cloneCmd && !!pullCmd && /Obsidian/.test(r.text), r.text);
+const copyDir = mkdtempSync(join(tmpdir(), "eh-copy-"));
+let cloned = false;
+try {
+  execSync(cloneCmd, { cwd: copyDir, stdio: "pipe" });
+  cloned = existsSync(join(copyDir, slug, "contacts", "samantha-wu--boxly.md")) && existsSync(join(copyDir, slug, "contacts", "rush-one--alpha.md"));
+} catch (err) {
+  log(`clone failed: ${err.stderr ?? err}`);
+}
+check("…the clone command downloads the workspace", cloned, copyDir);
+
+// Removing someone who wasn't met.
+r = await tool(maya, "remove_contact", { path: "contacts/rush-one--alpha.md", ...E });
+check("remove_contact without confirm only previews", !r.error && /1 conversation\(s\), logged by Maya Chen/.test(r.text) && /confirm/.test(r.text), r.text);
+r = await tool(maya, "read_file", { path: "contacts/rush-one--alpha.md", ...E });
+check("…and the file is still there", !r.error, r.text);
+r = await tool(maya, "remove_contact", { path: "contacts/rush-one--alpha.md", confirm: "contacts/rush-one--alpha.md", ...E });
+check("remove_contact needs a reason", r.error, r.text);
+r = await tool(maya, "remove_contact", { path: "contacts/rush-one--alpha.md", confirm: "contacts/rush-one--alpha.md", reason: "logged by mistake", ...E });
+check("remove_contact with confirm removes it", !r.error && /Removed Rush One/.test(r.text) && /removed 1 conversation/.test(r.text), r.text);
+r = await tool(maya, "read_file", { path: "contacts/rush-one--alpha.md", ...E });
+check("…the file is gone", r.error, r.text);
+r = await tool(maya, "query_crm", { sql: "SELECT count(*) AS n FROM interactions WHERE artifact_path = 'contacts/rush-one--alpha.md'" });
+check("…and its conversation left the database", /"n": 0\b/.test(r.text), r.text);
+let refreshed = false;
+if (cloned) {
+  try {
+    execSync(pullCmd, { cwd: copyDir, stdio: "pipe" });
+    refreshed = !existsSync(join(copyDir, slug, "contacts", "rush-one--alpha.md"));
+  } catch (err) {
+    log(`pull failed: ${err.stderr ?? err}`);
+  }
+}
+rmSync(copyDir, { recursive: true, force: true });
+check("…and the refresh command brings the copy up to date", refreshed);
+
+r = await tool(dev, "remove_contact", { path: "contacts/jordan-lee--omega.md", ...E });
+check("Dev's preview says Maya logged Jordan too, so only an admin can remove", /only an admin/.test(r.text), r.text);
+r = await tool(dev, "remove_contact", { path: "contacts/jordan-lee--omega.md", confirm: "contacts/jordan-lee--omega.md", reason: "test", ...E });
+check("…and Dev can't remove Jordan", r.error && /only an admin/.test(r.text), r.text);
+r = await tool(maya, "remove_contact", { path: "contacts/jordan-lee--omega.md", confirm: "contacts/jordan-lee--omega.md", reason: "duplicate test entry", ...E });
+check("Maya, an admin, can", !r.error && /Removed Jordan Lee/.test(r.text), r.text);
+r = await tool(dev, "remove_contact", { path: "contacts/tom-becker--cartco.md", confirm: "contacts/tom-becker--cartco.md", reason: "never met, a target", ...E });
+check("Dev removes Tom, whom only he logged", !r.error && /Removed Tom Becker/.test(r.text), r.text);
+r = await tool(maya, "targets", E);
+check("…so the target Tom shows as not met again", /1 of 3 met/.test(r.text) && /Tom Becker.*not met yet/.test(r.text), r.text);
+r = await tool(maya, "contacts_csv", E);
+check("The CSV has neither removed contact", !r.text.includes("Rush One") && !r.text.includes("Jordan Lee") && !r.text.includes("Tom Becker") && r.text.includes("Samantha Wu"), r.text);
 
 // ---------------------------------------------------------------- remove Dev
 r = await tool(maya, "list_people");
