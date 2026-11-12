@@ -266,49 +266,6 @@ img { max-width: 100%; height: auto; }
   color: #fff;
 }
 
-/* ─── Background ornament — the floor plan ────────────────────────────── */
-/* Class name kept as .bg-mesh for the shared BaseLayout contract. */
-.bg-mesh {
-  position: fixed;
-  inset: 0;
-  z-index: 0;
-  pointer-events: none;
-  background-image:
-    linear-gradient(var(--color-grid-major) 1px, transparent 1px),
-    linear-gradient(90deg, var(--color-grid-major) 1px, transparent 1px),
-    linear-gradient(var(--color-grid) 1px, transparent 1px),
-    linear-gradient(90deg, var(--color-grid) 1px, transparent 1px);
-  background-size:
-    calc(var(--grid-cell) * 8) calc(var(--grid-cell) * 8),
-    calc(var(--grid-cell) * 8) calc(var(--grid-cell) * 8),
-    var(--grid-cell) var(--grid-cell),
-    var(--grid-cell) var(--grid-cell);
-  background-position: -1px -1px;
-}
-
-/* Hi-vis floor tape down the left edge, like an aisle marking. */
-.bg-mesh::after {
-  content: '';
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  left: 0;
-  width: 10px;
-  background: repeating-linear-gradient(
-    -45deg,
-    var(--color-accent-warm) 0 12px,
-    var(--color-tape-b) 12px 24px
-  );
-}
-@media (max-width: 720px) {
-  .bg-mesh::after { width: 6px; }
-}
-
-body > :not(.bg-mesh) {
-  position: relative;
-  z-index: 1;
-}
-
 /* ─── Utility primitives ─────────────────────────────────────────────── */
 
 .container {

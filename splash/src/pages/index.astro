@@ -1,87 +1,57 @@
 ---
 import BaseLayout from '@layouts/BaseLayout.astro';
-import { getCollection } from 'astro:content';
 import { STATIC_SEO, REPO_URL } from '@lib/seo';
 
-const base = import.meta.env.BASE_URL;
-
-// ─── The program: one session per capability, grouped by phase ──────────
-const sessions = (await getCollection('program')).sort(
-  (a, b) => (a.data.order ?? 99) - (b.data.order ?? 99),
-);
 const PHASES = [
-  { key: 'before', label: 'Before', day: 'Day 0', blurb: 'Know the room before you walk in.' },
-  { key: 'during', label: 'During', day: 'Days 1–3', blurb: 'Keep everything while you talk.' },
-  { key: 'after', label: 'After', day: 'Day 4+', blurb: 'Turn the week into something.' },
-];
-const byPhase = PHASES.map((p) => ({
-  ...p,
-  sessions: sessions.filter((s) => s.data.phase === p.key),
-}));
-
-// ─── The badge's pseudo-QR: deterministic, generated at build time ──────
-const QR = 11;
-let seed = [...'event-hog'].reduce((h, c) => (h * 31 + c.charCodeAt(0)) >>> 0, 7);
-const rand = () => ((seed = (seed * 1103515245 + 12345) >>> 0) / 2 ** 32);
-const finder = (r: number, c: number) => {
-  const inBox = (r0: number, c0: number) => r >= r0 && r < r0 + 3 && c >= c0 && c < c0 + 3;
-  return inBox(0, 0) || inBox(0, QR - 3) || inBox(QR - 3, 0);
-};
-const qrCells = Array.from({ length: QR * QR }, (_, i) => {
-  const r = Math.floor(i / QR);
-  const c = i % QR;
-  return finder(r, c) || rand() > 0.52;
-});
-
-// ─── Things people actually say to it ───────────────────────────────────
-const SAYINGS = [
-  'Who is this?',
-  'Log this person. We talked about cooling loads.',
-  'Who have we met from Schneider?',
-  "What's the plan for today?",
-  'Write up these slides.',
-  'Quiz me on the acronyms.',
-  "Move today's contacts into the CRM.",
-];
-
-const LOST_AND_FOUND = [
-  { lost: 'Badge photos, forgotten in a camera roll', found: 'One contact file per person, made from the photo' },
-  { lost: 'Notes split across four phones', found: 'One shared workspace, every entry signed' },
-  { lost: 'Two teammates met the same buyer, separately', found: 'Both conversations land in the same file' },
-  { lost: '200 slide photos nobody reopens', found: 'Transcribed, summarized, searchable' },
-  { lost: 'The CRM, updated a week too late', found: 'Proposed the same day, yours to approve' },
-];
-
-const PASSES = [
   {
-    tier: 'All Access',
-    name: 'Use our Cloudflare',
-    ribbon: 'aa',
-    gets: [
-      'Copy one prompt, paste it into your agent, done',
-      'A shared workspace per event: git repo, database, image host',
-      'Attendee research with lead enrichment built in',
-      'Contacts, meetings and follow-ups go to your CRM after a yes',
+    name: 'Before',
+    items: [
+      'Load the attendee list and pick who to meet.',
+      'Look up speakers and the companies behind them.',
+      'Flash cards for the acronyms you will hear.',
     ],
-    needs: 'Nothing to deploy. Pick up your badge below.',
-    cta: { label: 'Copy the prompt', href: '#connect' },
   },
   {
-    tier: 'Exhibitor',
-    name: 'Self host',
-    ribbon: 'ex',
-    gets: [
-      'The same server, on your own Cloudflare account',
-      'Your data never reaches us',
-      'Your own people, your own enrichment key',
-      'Fork it and change anything',
+    name: 'During',
+    items: [
+      'Log someone from a sentence, a badge photo or a voice memo.',
+      'Two teammates who meet the same person add to the same file.',
+      'Photograph slides; your agent writes them up.',
     ],
-    needs: 'A Cloudflare account with Artifacts, D1 and R2.',
+  },
+  {
+    name: 'After',
+    items: [
+      'See who you met, who met them, and what you promised.',
+      'Send contacts to HubSpot after you approve each one, or export a CSV.',
+      'Fix a misspelled name or a wrong email. The old value stays in the history.',
+      'Draft posts about the event. Nothing is posted for you.',
+    ],
+  },
+];
+
+const WAYS = [
+  {
+    name: 'Use ours',
+    items: [
+      'Copy the prompt above. Nothing to deploy.',
+      "Runs on our Cloudflare account. Your team's events are private to your team.",
+      'Attendee lookup is included.',
+    ],
+    cta: { label: 'Get connected', href: '#connect' },
+  },
+  {
+    name: 'Run your own',
+    items: [
+      'The same server on your own Cloudflare account. Your data never reaches us.',
+      'Needs Workers, Artifacts, D1 and R2.',
+      'Your own people and your own lookup key. Fork it and change anything.',
+    ],
     cta: { label: 'Deploy your own', href: `${REPO_URL}#deploy-your-own` },
   },
 ];
 
-// ─── Registration: the connector the copy-a-prompt widget points at ─────
+// The connector the copy-a-prompt widget points at.
 const SERVER = import.meta.env.PUBLIC_EVENTHOG_SERVER ?? 'https://event-hog.tanujsiripurapu.workers.dev';
 const LINK = '__EVENTHOG_URL__';
 const PROMPT = [
@@ -99,61 +69,25 @@ const PROMPT = [
   '',
   'Step 2. Once event-hog\'s tools are available, call its get_started tool and follow what it says. If they don\'t appear in this chat, tell me to start a new chat and say "Use event-hog: get started".',
 ].join('\n');
-
-const BOOTHS = [
-  { id: 'A1', path: 'prep/', what: 'Who’s in the room and why they matter', area: 'prep' },
-  { id: 'A2', path: 'speakers/', what: 'Sourced speaker profiles', area: 'speakers' },
-  { id: 'B1', path: 'contacts/', what: 'One file per person. Every teammate’s touchpoints append', area: 'contacts', big: true },
-  { id: 'B2', path: 'notes/', what: 'Session takeaways, themes, ideas', area: 'notes' },
-  { id: 'C1', path: 'slides/', what: 'Photos, notes per slide, the talk told slide by slide', area: 'slides', big: true },
-  { id: 'C2', path: 'drafts/', what: 'Post drafts. Never posted from here', area: 'drafts' },
-  { id: 'C3', path: 'flash-cards/', what: 'The shared deck', area: 'cards' },
-  { id: 'D1', path: 'exports/', what: 'CRM import files', area: 'exports' },
-];
-
-const GUARANTEED = [
-  'Every write is a git commit authored as the person who made it.',
-  'Writes add or append. A contact’s known fields are never overwritten.',
-  'Upload links are signed, single use, and expire in 15 minutes.',
-  'Recreated slides with scripts, or without a source credit, are refused.',
-  'Hosted HTML is served sandboxed: no scripts, no forms.',
-];
-const ASKED = [
-  'Search before logging someone, and never invent a field.',
-  'Propose CRM records, and create them only after a yes.',
-  'Draft posts; never post.',
-  'Keep hallway conversations out of anything public.',
-];
 ---
 
 <BaseLayout title={STATIC_SEO.root.title} description={STATIC_SEO.root.description}>
   <main>
-    <!-- ─── Hero ─────────────────────────────────────────────────────── -->
     <section class="hero">
       <div class="container hero__grid">
-        <div class="hero__copy">
-          <p class="eyebrow hero__eyebrow">
-            <span class="dot" aria-hidden="true"></span>
-            Open source · MCP server · Works in Claude and Codex
-          </p>
-          <h1 class="hero__title">
-            <span>Work the room.</span>
-            <span class="hero__title--hot">Keep everything.</span>
-          </h1>
+        <div>
+          <h1 class="hero__title">Work the room.<br /><span>Keep everything.</span></h1>
           <p class="hero__lede">
-            event-hog gives a team working a conference one shared workspace
-            inside the AI they already use. Prep before. Contacts, notes and
-            slides during. Follow-ups after. You talk to it in plain words, and
-            nobody stops a conversation to fill in a form.
+            event-hog is a shared notebook for your team at a conference. It
+            runs inside the AI you already use (Claude, ChatGPT, Cursor or
+            Codex), so logging someone you just met is one sentence to your
+            agent.
           </p>
           <div class="hero__ctas">
             <a class="btn btn-primary" href="#connect">Get connected</a>
-            <a class="btn" href="#program">See the program</a>
-            <a class="btn" href={REPO_URL} target="_blank" rel="noopener">Get the source</a>
+            <a class="btn" href={REPO_URL} target="_blank" rel="noopener">GitHub</a>
           </div>
-          <p class="hero__fine mono">
-            Apache-2.0 · first worked the floor at the 7x24 Exchange, Fall 2026
-          </p>
+          <p class="hero__fine">Open source. <a href="#run">Use ours, or run your own copy.</a></p>
         </div>
 
         <div class="hero__badge-wrap" aria-hidden="true">
@@ -164,195 +98,41 @@ const ASKED = [
           </div>
           <div class="badge">
             <span class="badge__slot"></span>
-            <div class="badge__head">
-              <span>Any conference</span>
-              <span>Any city</span>
-            </div>
             <div class="badge__body">
               <p class="badge__hello">Hello</p>
               <p class="badge__we">we are</p>
               <p class="badge__name">event&#8209;hog</p>
               <p class="badge__role">Your team's memory at the show</p>
-              <div class="badge__foot">
-                <div class="qr">
-                  {qrCells.map((on) => <span class={on ? 'on' : ''}></span>)}
-                </div>
-                <div class="badge__meta mono">
-                  <span>Reg # 0.1.0</span>
-                  <span>Priority A</span>
-                  <span class="snout"><i></i><i></i></span>
-                </div>
-              </div>
+              <span class="snout"><i></i><i></i></span>
             </div>
-            <div class="badge__ribbon">All Access</div>
           </div>
         </div>
       </div>
     </section>
 
-    <!-- ─── Ticker: what people say to it ─────────────────────────────── -->
-    <section class="ticker" aria-label="Things people say to event-hog">
-      <div class="ticker__track">
-        {[0, 1].map((dup) => (
-          <ul class="ticker__list" aria-hidden={dup === 1 ? 'true' : undefined}>
-            {SAYINGS.map((s) => <li>“{s}”</li>)}
-          </ul>
-        ))}
-      </div>
-    </section>
-
-    <!-- ─── Hall A: Lost & Found ─────────────────────────────────────── -->
-    <section class="section" id="why">
-      <div class="container lf">
-        <div class="lf__intro">
-          <p class="folio" data-num="A">Why it exists</p>
-          <h2 class="section__title">The lost<br />&amp; found desk</h2>
-          <p class="section__lede">
-            A conference is days of conversations that matter, and most of them
-            get lost. By the time anyone opens the CRM, the week is a blur.
-            event-hog keeps it while you're still in the room.
-          </p>
-        </div>
-        <ol class="lf__list">
-          {LOST_AND_FOUND.map((item, i) => (
-            <li class="lf__item">
-              <span class="lf__no mono">{String(i + 1).padStart(3, '0')}</span>
-              <span class="lf__lost">
-                <span class="lf__tag mono">Lost</span>
-                {item.lost}
-              </span>
-              <span class="lf__found">
-                <span class="lf__tag lf__tag--found mono">Found</span>
-                {item.found}
-              </span>
-            </li>
-          ))}
-        </ol>
-      </div>
-    </section>
-
-    <!-- ─── Hall B: The program ──────────────────────────────────────── -->
-    <section class="section" id="program">
-      <div class="container">
-        <div class="section__head">
-          <p class="folio" data-num="B">What it does</p>
-          <h2 class="section__title">The program</h2>
-          <p class="section__lede">
-            Everything event-hog does, laid out like the agenda it's built for.
-            Each session names the skill Claude loads and the tools it calls, so
-            you can check the claim against the code.
-          </p>
-        </div>
-
-        <div class="program">
-          {byPhase.map((phase) => (
-            <div class="program__phase">
-              <header class="program__phase-head">
-                <span class="program__day mono">{phase.day}</span>
-                <h3 class="program__phase-name">{phase.label}</h3>
-                <p class="program__phase-blurb">{phase.blurb}</p>
-              </header>
-              <ol class="program__rows">
-                {phase.sessions.map((s) => (
-                  <li class="session" data-status={s.data.status}>
-                    <span class="session__slot mono">{s.data.slot}</span>
-                    <div class="session__main">
-                      <h4 class="session__title">{s.data.title}</h4>
-                      <p class="session__body">{s.body}</p>
-                      {s.data.status === 'partial' && s.data.status_note && (
-                        <p class="session__note">
-                          <span class="session__stamp mono">In progress</span>
-                          {s.data.status_note}
-                        </p>
-                      )}
-                    </div>
-                    <div class="session__side">
-                      <p class="session__room">
-                        <span class="eyebrow">Room</span>
-                        <span class="mono">{s.data.room}</span>
-                      </p>
-                      <p class="session__track">
-                        <span class="eyebrow">Track</span>
-                        <span class="chip">{s.data.track}</span>
-                      </p>
-                      {s.data.tools && s.data.tools.length > 0 && (
-                        <ul class="session__tools" aria-label="Tools">
-                          {s.data.tools.map((t) => <li class="mono">{t}</li>)}
-                        </ul>
-                      )}
-                    </div>
-                  </li>
-                ))}
-              </ol>
-            </div>
-          ))}
-        </div>
-      </div>
-    </section>
-
-    <!-- ─── Hall C: Passes ───────────────────────────────────────────── -->
-    <section class="section" id="passes">
-      <div class="container">
-        <div class="section__head">
-          <p class="folio" data-num="C">Two ways to run it</p>
-          <h2 class="section__title">Pick your pass</h2>
-          <p class="section__lede">
-            Both passes run the same server and make the same workspace: plain
-            markdown files, one per contact, and a CSV. Start on ours; move to
-            your own when you want the data on your account.
-          </p>
-        </div>
-        <ol class="passes">
-          {PASSES.map((p, i) => (
-            <li class={`pass pass--${p.ribbon}`} style={`--tilt:${[-1.2, 0.8][i]}deg`}>
-              <span class="pass__slot" aria-hidden="true"></span>
-              <p class="pass__level mono">Pass {i + 1}</p>
-              <h3 class="pass__name">{p.name}</h3>
-              <ul class="pass__gets">
-                {p.gets.map((g) => <li>{g}</li>)}
-              </ul>
-              <p class="pass__needs"><span class="eyebrow">Needs</span> {p.needs}</p>
-              <p class="pass__cta">
-                <a
-                  class={`btn ${i === 0 ? 'btn-primary' : ''}`}
-                  href={p.cta.href}
-                  {...(p.cta.href.startsWith('http') ? { target: '_blank', rel: 'noopener' } : {})}
-                >{p.cta.label}</a>
-              </p>
-              <p class="pass__ribbon">{p.tier}</p>
-            </li>
-          ))}
-        </ol>
-      </div>
-    </section>
-
-    <!-- ─── Registration: copy a prompt, get connected ───────────────── -->
     <section class="section" id="connect">
       <div class="container reg">
-        <div class="reg__intro">
-          <p class="folio" data-num="REG">Registration</p>
-          <h2 class="section__title">Pick up your badge</h2>
+        <div>
+          <h2 class="section__title">Get connected</h2>
           <p class="section__lede">
-            Copy this prompt and paste it into Claude, ChatGPT, Cursor, Claude
-            Code or Codex. It carries your own private link, and your agent
-            connects itself, or walks you through the two clicks.
+            Copy this prompt into your agent. It includes your own private link,
+            and your agent sets itself up or walks you through it.
           </p>
-          <ol class="reg__steps">
-            <li>Your agent asks which company you represent and which conference you're going to.</li>
-            <li>It works out whether you're before, during or after the show, and picks up from there.</li>
-            <li>You get your own private team. Ask your agent to add a teammate, and send them the link it makes: they see your events and contacts, and nobody else does.</li>
-          </ol>
+          <p class="section__lede">
+            It then asks which company you're with and which conference you're
+            going to. You get a private team; ask your agent to invite
+            teammates.
+          </p>
         </div>
 
         <div class="reg__desk" data-connect data-server={SERVER} data-template={PROMPT} data-placeholder={LINK}>
-          <p class="reg__label mono">Your setup prompt</p>
           <textarea class="reg__prompt mono" readonly aria-label="Your setup prompt" data-prompt>Loading your link…</textarea>
           <div class="reg__actions">
             <button type="button" class="btn btn-primary" data-copy>Copy this prompt</button>
             <button type="button" class="btn" data-copy-link>Copy just my link</button>
           </div>
           <details class="reg__manual">
-            <summary>Set it up by hand instead</summary>
+            <summary>Set it up by hand</summary>
             <p>Your link: <code class="chip" data-link></code></p>
             <ul>
               <li><b>Claude</b> (web, desktop, mobile): Settings, Connectors, Add custom connector. Name it event-hog and paste your link.</li>
@@ -362,103 +142,78 @@ const ASKED = [
             </ul>
           </details>
           <p class="reg__fine">
-            Your link works like a password: anyone with it can write as you.
-            This browser remembers it, so come back here to copy it again.
-            Everything you log goes into your team's own workspace, which only
-            people you invite can see. If your team already uses event-hog, ask
-            its admin for an invite instead of starting a new team. event-hog
-            never posts or emails anything, and never
-            writes to your CRM by itself.
+            Treat the link like a password: anyone with it can write as you.
+            This browser remembers it. If your team already uses event-hog, ask
+            your admin for an invite instead.
             <button type="button" class="reg__fresh" data-fresh>Make me a new link</button>
           </p>
         </div>
       </div>
     </section>
 
-    <!-- ─── Hall D: Floor plan ───────────────────────────────────────── -->
-    <section class="section" id="floor-plan">
+    <section class="section" id="how">
       <div class="container">
-        <div class="section__head">
-          <p class="folio" data-num="D">The workspace</p>
-          <h2 class="section__title">Floor plan</h2>
-          <p class="section__lede">
-            Every event gets the same layout: a folder of plain markdown files
-            anyone can read, with or without us. Databases and CRMs are views of
-            it, and can be rebuilt from it.
-          </p>
-        </div>
-        <div class="floor">
-          <div class="floor__map">
-            {BOOTHS.map((b) => (
-              <div class={`booth ${b.big ? 'booth--big' : ''}`} style={`grid-area:${b.area}`}>
-                <span class="booth__id mono">{b.id}</span>
-                <span class="booth__path mono">{b.path}</span>
-                <span class="booth__what">{b.what}</span>
-              </div>
-            ))}
-            <div class="booth booth--reg" style="grid-area:reg">
-              <span class="booth__id mono">REG</span>
-              <span class="booth__path mono">Contacts__Met.csv</span>
-              <span class="booth__what">Everyone the team met, one row each. Always current. Import it anywhere.</span>
+        <h2 class="section__title">What it does</h2>
+        <div class="phases">
+          {PHASES.map((p) => (
+            <div class="phase">
+              <h3 class="phase__name">{p.name}</h3>
+              <ul>{p.items.map((item) => <li>{item}</li>)}</ul>
             </div>
-            <div class="floor__entrance mono" style="grid-area:door">▲ Entrance · you are here</div>
-          </div>
-          <aside class="floor__legend">
-            <p class="eyebrow">Legend</p>
-            <ul>
-              <li><span class="key key--line"></span> Every write is a commit, signed by whoever made it.</li>
-              <li><span class="key key--dash"></span> Writes append. Nothing gets overwritten.</li>
-              <li><span class="key key--fill"></span> Images live at a link. Files keep the link.</li>
-            </ul>
-          </aside>
+          ))}
         </div>
       </div>
     </section>
 
-    <!-- ─── Hall E: Fine print ───────────────────────────────────────── -->
-    <section class="section" id="fine-print">
+    <section class="section" id="run">
       <div class="container">
-        <div class="section__head">
-          <p class="folio" data-num="E">Fine print</p>
-          <h2 class="section__title">What's enforced, what's asked</h2>
-          <p class="section__lede">
-            Some behaviour is guaranteed by the server's code. Some is an
-            instruction to the model, which a model can fail to follow. We
-            list both, because "does it do what we think it does?" is the
-            first question a CTO should ask.
+        <h2 class="section__title">How it runs</h2>
+        <div class="data__body">
+          <p>
+            event-hog is one Cloudflare Worker. Each event is its own git repo on
+            <a href="https://developers.cloudflare.com/artifacts/" target="_blank" rel="noopener">Cloudflare Artifacts</a>,
+            git storage built for agents. Every save your agent makes is a
+            commit signed by you, so the whole team works from one history and a
+            teammate's save never overwrites yours.
+          </p>
+          <p>
+            Because it's plain git, you can download an event and open it in
+            Obsidian or any editor. A database keeps the same contacts ready to
+            query, and photos live in Cloudflare's file storage.
           </p>
         </div>
-        <div class="fine">
-          <div class="fine__col fine__col--enforced">
-            <h3>The server guarantees</h3>
-            <ul>{GUARANTEED.map((g) => <li>{g}</li>)}</ul>
-          </div>
-          <div class="fine__col fine__col--asked">
-            <h3>It asks the model to</h3>
-            <ul>{ASKED.map((g) => <li>{g}</li>)}</ul>
-          </div>
+        <div class="ways">
+          {WAYS.map((w, i) => (
+            <div class="way">
+              <h3 class="way__name">{w.name}</h3>
+              <ul>{w.items.map((item) => <li>{item}</li>)}</ul>
+              <a
+                class={`btn ${i === 0 ? 'btn-primary' : ''}`}
+                href={w.cta.href}
+                {...(w.cta.href.startsWith('http') ? { target: '_blank', rel: 'noopener' } : {})}
+              >{w.cta.label}</a>
+            </div>
+          ))}
         </div>
-        <p class="fine__data">
-          <strong>Your data is yours.</strong> On your own Cloudflare account it
-          never reaches us. On ours, it's stored so your team can use it and is
-          never looked at or used commercially.
-          <a href={`${REPO_URL}/blob/main/DATA-POLICY.md`} target="_blank" rel="noopener">Read the data policy</a>.
-        </p>
       </div>
     </section>
 
-    <!-- ─── Collaborate ─────────────────────────────────────────────── -->
-    <section class="section">
-      <div class="container">
-        <div class="cta">
-          <div>
-            <p class="eyebrow cta__eyebrow">Exhibitors wanted</p>
-            <h2 class="cta__title">Fork it. Run it at your next show. Tell us what broke.</h2>
-          </div>
-          <div class="cta__links">
-            <a class="btn btn-primary" href={`${REPO_URL}/blob/main/COLLABORATE.md`} target="_blank" rel="noopener">How to collaborate</a>
-            <a class="btn" href={`${base}context-v/`}>Read the reasoning</a>
-          </div>
+    <section class="section" id="data">
+      <div class="container data">
+        <h2 class="section__title">Your data</h2>
+        <div class="data__body">
+          <p>
+            Each event is a folder of plain markdown files: one per person you
+            met, plus a CSV of everyone. Nothing is lost: a correction keeps
+            the old value, and every version stays in the history.
+          </p>
+          <p>
+            Only people you invite can see your team's events. event-hog never
+            posts, sends email, or writes to your CRM on its own.
+          </p>
+          <p>
+            Read the <a href={`${REPO_URL}/blob/main/DATA-POLICY.md`} target="_blank" rel="noopener">data policy</a>.
+          </p>
         </div>
       </div>
     </section>
@@ -519,55 +274,37 @@ const ASKED = [
 </script>
 
 <style>
-  /* ─── Shared section scaffolding ───────────────────────────────────── */
   .section { padding: var(--space-20) 0 0; }
-  .section__head { max-width: 760px; margin-bottom: var(--space-10); }
-  .section__title {
-    font-size: clamp(3rem, 8vw, 5.6rem);
-    margin: var(--space-4) 0 var(--space-4);
-  }
-  .section__lede { color: var(--color-text-soft); font-size: 1.08rem; max-width: 62ch; }
+  .section__title { font-size: clamp(2.4rem, 6vw, 3.6rem); margin-bottom: var(--space-5); }
+  .section__lede { color: var(--color-text-soft); font-size: 1.08rem; max-width: 52ch; }
+  .section__lede + .section__lede { margin-top: var(--space-4); }
 
   /* ─── Hero ─────────────────────────────────────────────────────────── */
-  .hero { padding: var(--space-16) 0 var(--space-12); overflow: hidden; }
+  .hero { padding: var(--space-16) 0 0; overflow: hidden; }
   .hero__grid {
     display: grid;
-    grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr);
+    grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr);
     gap: var(--space-12);
     align-items: start;
   }
-  .hero__eyebrow { display: inline-flex; align-items: center; gap: var(--space-2); }
-  .dot {
-    width: 8px; height: 8px; border-radius: 50%;
-    background: var(--color-thread);
-    box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-thread) 25%, transparent);
-  }
   .hero__title {
-    display: flex;
-    flex-direction: column;
-    font-size: clamp(4rem, 11.5vw, 9.6rem);
-    line-height: 0.84;
-    letter-spacing: -0.005em;
-    margin: var(--space-5) 0 var(--space-6);
+    font-size: clamp(3.2rem, 8vw, 6.4rem);
+    line-height: 0.9;
+    margin-bottom: var(--space-6);
   }
-  .hero__title--hot { color: var(--color-accent-warm); }
+  .hero__title span { color: var(--color-accent-warm); }
   .hero__lede { font-size: 1.2rem; max-width: 34em; color: var(--color-text-soft); }
   .hero__ctas { display: flex; flex-wrap: wrap; gap: var(--space-4); margin-top: var(--space-8); }
-  .hero__fine { margin-top: var(--space-6); font-size: 0.66rem; color: var(--color-text-dim); letter-spacing: 0.04em; }
+  .hero__fine { margin-top: var(--space-5); font-size: 0.9rem; color: var(--color-text-dim); }
 
   /* The lanyard and badge */
   .hero__badge-wrap {
-    position: relative;
     display: flex;
     flex-direction: column;
     align-items: center;
     margin-top: calc(var(--space-16) * -1);
+    transform: rotate(-2deg);
     transform-origin: 50% 0;
-    animation: sway 6s ease-in-out infinite;
-  }
-  @keyframes sway {
-    0%, 100% { transform: rotate(-2.2deg); }
-    50% { transform: rotate(1.6deg); }
   }
   .lanyard { position: relative; width: 200px; height: 170px; }
   .lanyard__strap {
@@ -575,9 +312,7 @@ const ASKED = [
     top: -40px;
     width: 26px;
     height: 210px;
-    background:
-      repeating-linear-gradient(180deg, transparent 0 18px, rgba(255,255,255,.55) 18px 20px),
-      var(--color__lanyard);
+    background: var(--color__lanyard);
     border: 2px solid var(--color-border-strong);
   }
   .lanyard__strap--l { left: 40px; transform: rotate(-16deg); transform-origin: bottom; }
@@ -591,18 +326,15 @@ const ASKED = [
     transform: translateX(-50%);
     border: 5px solid var(--color__concrete-400);
     border-radius: 8px 8px 50% 50%;
-    background: transparent;
   }
-
   .badge {
     position: relative;
-    width: min(360px, 100%);
+    width: min(340px, 100%);
     background: var(--color__card);
     color: var(--color__ink);
     border: 3px solid var(--color__ink);
     border-radius: var(--radius-xl);
     box-shadow: var(--shadow-elevated);
-    overflow: hidden;
   }
   .badge__slot {
     position: absolute;
@@ -615,21 +347,11 @@ const ASKED = [
     background: var(--color-bg);
     border: 2px solid var(--color__ink);
   }
-  .badge__head {
-    display: flex;
-    justify-content: space-between;
-    padding: 36px 20px 10px;
-    font-family: var(--font__mono);
-    font-size: 0.6rem;
-    letter-spacing: 0.14em;
-    text-transform: uppercase;
-    border-bottom: 2px dashed var(--color__ink);
-  }
-  .badge__body { padding: 18px 20px 16px; }
+  .badge__body { position: relative; padding: 44px 22px 22px; }
   .badge__hello {
     font-family: var(--font__display);
     font-weight: 900;
-    font-size: 4.4rem;
+    font-size: 4.2rem;
     line-height: 0.82;
     text-transform: uppercase;
     color: var(--color__hi-vis);
@@ -638,265 +360,43 @@ const ASKED = [
   .badge__name {
     font-family: var(--font__display);
     font-weight: 800;
-    font-size: 3.1rem;
+    font-size: 3rem;
     line-height: 1;
     text-transform: lowercase;
   }
   .badge__role { margin-top: 6px; font-size: 0.95rem; color: var(--color__concrete-700); }
-  .badge__foot {
-    display: flex;
-    justify-content: space-between;
-    align-items: end;
-    margin-top: 18px;
-  }
-  .qr {
-    display: grid;
-    grid-template-columns: repeat(11, 7px);
-    grid-auto-rows: 7px;
-    padding: 5px;
-    border: 2px solid var(--color__ink);
-    background: #fff;
-  }
-  .qr span.on { background: var(--color__ink); }
-  .badge__meta {
-    display: flex;
-    flex-direction: column;
-    align-items: end;
-    gap: 4px;
-    font-size: 0.6rem;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-  }
   .snout {
+    position: absolute;
+    right: 22px;
+    bottom: 22px;
     display: inline-flex;
     gap: 7px;
     align-items: center;
     justify-content: center;
     width: 52px;
     height: 36px;
-    margin-top: 6px;
     border-radius: 50%;
     background: var(--color__hog);
     border: 2.5px solid var(--color__ink);
   }
   .snout i { width: 8px; height: 12px; border-radius: 50%; background: var(--color__ink); }
-  .badge__ribbon {
-    padding: 10px 20px 8px;
-    background: var(--color__hi-vis);
-    border-top: 3px solid var(--color__ink);
-    font-family: var(--font__display);
-    font-weight: 900;
-    font-size: 1.7rem;
-    letter-spacing: 0.12em;
-    text-transform: uppercase;
-    color: #fff;
-    text-align: center;
-  }
 
-  /* ─── Ticker ──────────────────────────────────────────────────────── */
-  .ticker {
-    margin: var(--space-6) -2vw 0;
-    transform: rotate(-1.2deg);
-    background: var(--color-accent-warm);
-    border-block: 3px solid var(--color-border-strong);
-    overflow: hidden;
-  }
-  .ticker__track { display: flex; width: max-content; animation: marquee 48s linear infinite; }
-  .ticker__list { display: flex; flex-shrink: 0; }
-  .ticker__list li {
-    padding: 12px 22px 10px;
-    font-family: var(--font__display);
-    font-weight: 800;
-    font-size: 1.6rem;
-    text-transform: uppercase;
-    letter-spacing: 0.03em;
-    color: #fff;
-    white-space: nowrap;
-  }
-  .ticker__list li::after { content: '✱'; margin-left: 44px; color: var(--color__ink); }
-  :root[data-mode='vibrant'] .ticker__list li { color: #000; }
-  @keyframes marquee { to { transform: translateX(-50%); } }
-
-  /* ─── Lost & found ────────────────────────────────────────────────── */
-  .lf {
-    display: grid;
-    grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.4fr);
-    gap: var(--space-12);
-    align-items: start;
-  }
-  .lf__list { border-top: 3px solid var(--color-border-strong); }
-  .lf__item {
-    display: grid;
-    grid-template-columns: 3.5rem 1fr 1fr;
-    gap: var(--space-4);
-    padding: var(--space-5) 0;
-    border-bottom: 1px solid var(--color-border);
-    align-items: start;
-  }
-  .lf__no { font-size: 0.7rem; color: var(--color-text-dim); padding-top: 4px; }
-  .lf__lost { color: var(--color-text-dim); text-decoration: line-through; text-decoration-color: var(--color-accent-warm); text-decoration-thickness: 2px; }
-  .lf__found { font-weight: 700; }
-  .lf__tag {
-    display: block;
-    width: fit-content;
-    margin-bottom: 6px;
-    padding: 2px 6px;
-    font-size: 0.58rem;
-    letter-spacing: 0.12em;
-    text-transform: uppercase;
-    text-decoration: none;
-    border: 1.5px solid var(--color-text-dim);
-    color: var(--color-text-dim);
-  }
-  .lf__lost .lf__tag { display: inline-block; text-decoration: none; }
-  .lf__tag--found { border-color: var(--color-thread); color: var(--color-thread); }
-
-  /* ─── Program ─────────────────────────────────────────────────────── */
-  .program { display: grid; gap: var(--space-10); }
-  .program__phase-head {
-    display: grid;
-    grid-template-columns: 9rem auto 1fr;
-    gap: var(--space-5);
-    align-items: baseline;
-    padding: var(--space-3) var(--space-5);
-    background: var(--color-text);
-    color: var(--color-bg);
-  }
-  .program__day { font-size: 0.72rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--color-accent-warm); }
-  .program__phase-name { font-size: 2.4rem; color: var(--color-bg); }
-  .program__phase-blurb { justify-self: end; font-style: italic; opacity: 0.8; }
-  .program__rows { border: 2px solid var(--color-border-strong); border-top: 0; background: var(--color-bg-card); }
-  .session {
-    display: grid;
-    grid-template-columns: 9rem minmax(0, 1fr) 16rem;
-    gap: var(--space-5);
-    padding: var(--space-6) var(--space-5);
-    border-top: 1px dashed var(--color-text-faint);
-  }
-  .session:first-child { border-top: 0; }
-  .session__slot { font-size: 0.72rem; color: var(--color-accent); padding-top: 6px; }
-  .session__title { font-size: 1.85rem; line-height: 1; margin-bottom: var(--space-3); }
-  .session__body { color: var(--color-text-soft); max-width: 60ch; }
-  .session__note {
-    margin-top: var(--space-4);
-    font-size: 0.9rem;
-    color: var(--color-text-soft);
-    display: flex;
-    gap: var(--space-3);
-    align-items: baseline;
-  }
-  .session__stamp {
-    flex-shrink: 0;
-    padding: 3px 7px;
-    font-size: 0.58rem;
-    letter-spacing: 0.1em;
-    text-transform: uppercase;
-    color: var(--color-accent-warm);
-    border: 2px solid var(--color-accent-warm);
-    transform: rotate(-3deg);
-  }
-  .session__side { display: grid; gap: var(--space-3); align-content: start; font-size: 0.85rem; }
-  .session__side p { display: grid; gap: 2px; }
-  .session__track .chip { white-space: normal; overflow-wrap: anywhere; width: fit-content; }
-  .session__tools { display: flex; flex-wrap: wrap; gap: 4px; }
-  .session__tools li {
-    font-size: 0.62rem;
-    padding: 2px 6px;
-    border: 1px solid var(--color-border-strong);
-    border-radius: var(--radius-sm);
-    color: var(--color-text-soft);
-  }
-
-  /* ─── Passes ──────────────────────────────────────────────────────── */
-  .passes {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    max-width: 960px;
-    gap: var(--space-8);
-    align-items: stretch;
-  }
-  .pass {
-    position: relative;
-    display: flex;
-    flex-direction: column;
-    padding: 44px var(--space-6) 0;
-    background: var(--color-bg-card);
-    border: 3px solid var(--color-border-strong);
-    border-radius: var(--radius-xl);
-    box-shadow: var(--shadow-card);
-    overflow: hidden;
-    transform: rotate(var(--tilt));
-    transition: transform var(--transition-mid);
-  }
-  .pass:hover { transform: rotate(0deg) translateY(-4px); }
-  .pass__slot {
-    position: absolute;
-    top: 14px;
-    left: 50%;
-    width: 56px;
-    height: 11px;
-    transform: translateX(-50%);
-    border-radius: 999px;
-    background: var(--color-bg);
-    border: 2px solid var(--color-border-strong);
-  }
-  .pass__level { font-size: 0.64rem; letter-spacing: 0.14em; text-transform: uppercase; color: var(--color-text-dim); }
-  .pass__name { font-size: 2.3rem; margin: var(--space-2) 0 var(--space-5); }
-  .pass__gets { display: grid; gap: var(--space-2); flex: 1; }
-  .pass__gets li { padding-left: 1.3em; position: relative; color: var(--color-text-soft); font-size: 0.97rem; }
-  .pass__gets li::before { content: '✓'; position: absolute; left: 0; color: var(--color-thread); font-weight: 700; }
-  .pass__needs { margin: var(--space-6) 0 var(--space-4); font-size: 0.9rem; display: grid; gap: 2px; }
-  .pass__cta { margin-bottom: var(--space-6); }
-  .pass__ribbon {
-    margin: 0 calc(var(--space-6) * -1);
-    padding: 10px var(--space-6) 8px;
-    border-top: 3px solid var(--color-border-strong);
-    font-family: var(--font__display);
-    font-weight: 900;
-    font-size: 1.5rem;
-    letter-spacing: 0.12em;
-    text-transform: uppercase;
-    text-align: center;
-    color: #fff;
-  }
-  .pass--ex .pass__ribbon { background: var(--color__lanyard); }
-  .pass--aa .pass__ribbon { background: var(--color__hi-vis); }
-
-  /* ─── Registration ───────────────────────────────────────────────── */
+  /* ─── Get connected ──────────────────────────────────────────────── */
   .reg {
     display: grid;
     grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.3fr);
     gap: var(--space-12);
     align-items: start;
   }
-  .reg__steps { display: grid; gap: var(--space-3); margin-top: var(--space-6); counter-reset: step; }
-  .reg__steps li { position: relative; padding-left: 2.2em; color: var(--color-text-soft); counter-increment: step; }
-  .reg__steps li::before {
-    content: counter(step);
-    position: absolute;
-    left: 0;
-    top: 0;
-    width: 1.5em;
-    height: 1.5em;
-    display: grid;
-    place-items: center;
-    font-family: var(--font__mono);
-    font-size: 0.8rem;
-    font-weight: 700;
-    background: var(--color-accent-warm);
-    color: #fff;
-  }
   .reg__desk {
     padding: var(--space-6);
     background: var(--color-bg-card);
     border: 3px solid var(--color-border-strong);
-    box-shadow: 10px 10px 0 var(--color-accent-warm);
   }
-  .reg__label { font-size: 0.64rem; letter-spacing: 0.14em; text-transform: uppercase; color: var(--color-text-dim); margin-bottom: var(--space-3); }
   .reg__prompt {
     display: block;
     width: 100%;
-    height: 220px;
+    height: 200px;
     padding: var(--space-4);
     font-size: 0.72rem;
     line-height: 1.6;
@@ -925,133 +425,45 @@ const ASKED = [
     cursor: pointer;
   }
 
-  /* ─── Floor plan ──────────────────────────────────────────────────── */
-  .floor {
+  /* ─── What it does ───────────────────────────────────────────────── */
+  .phases {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) 16rem;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: var(--space-8);
-    align-items: start;
   }
-  .floor__map {
-    display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-    grid-template-areas:
-      'prep     speakers slides  slides'
-      'contacts contacts slides  slides'
-      'contacts contacts drafts  cards'
-      'notes    exports  reg     reg'
-      'door     door     door    door';
-    gap: 14px;
-    padding: 18px;
-    border: 3px solid var(--color-border-strong);
-    background:
-      repeating-linear-gradient(45deg, transparent 0 10px, color-mix(in oklab, var(--color-text) 3%, transparent) 10px 11px),
-      var(--color-bg-soft);
-  }
-  .booth {
-    display: grid;
-    align-content: start;
-    gap: 4px;
-    min-height: 120px;
-    padding: 12px 14px;
-    background: var(--color-bg-card);
-    border: 2px dashed var(--color-text-dim);
-  }
-  .booth--big { border-style: solid; border-color: var(--color-border-strong); }
-  .booth--big .booth__path { font-size: 1rem; }
-  .booth__id {
-    width: fit-content;
-    padding: 1px 6px;
-    font-size: 0.58rem;
-    font-weight: 700;
-    background: var(--color-text);
-    color: var(--color-bg);
-  }
-  .booth__path { font-size: 0.84rem; font-weight: 700; color: var(--color-accent); margin-top: 4px; }
-  .booth__what { font-size: 0.86rem; color: var(--color-text-soft); line-height: 1.35; }
-  .booth--reg { background: var(--color-accent-warm); border: 3px solid var(--color-border-strong); }
-  .booth--reg .booth__path, .booth--reg .booth__what { color: #fff; }
-  .booth--reg .booth__id { background: #fff; color: #000; }
-  :root[data-mode='vibrant'] .booth--reg .booth__path,
-  :root[data-mode='vibrant'] .booth--reg .booth__what { color: #000; }
-  .floor__entrance {
-    text-align: center;
-    padding: 8px;
-    font-size: 0.66rem;
-    letter-spacing: 0.14em;
-    text-transform: uppercase;
-    color: var(--color-text-dim);
-    border-top: 2px dashed var(--color-text-dim);
-  }
-  .floor__legend ul { display: grid; gap: var(--space-4); margin-top: var(--space-3); }
-  .floor__legend li { display: grid; grid-template-columns: 28px 1fr; gap: var(--space-3); font-size: 0.93rem; color: var(--color-text-soft); }
-  .key { display: block; width: 28px; height: 18px; margin-top: 3px; }
-  .key--line { border: 2px solid var(--color-border-strong); }
-  .key--dash { border: 2px dashed var(--color-text-dim); }
-  .key--fill { background: var(--color-accent-warm); border: 2px solid var(--color-border-strong); }
+  .phase { border-top: 3px solid var(--color-border-strong); padding-top: var(--space-4); }
+  .phase__name { font-size: 1.8rem; margin-bottom: var(--space-3); }
+  .phase ul { display: grid; gap: var(--space-3); }
+  .phase li { color: var(--color-text-soft); }
 
-  /* ─── Fine print ─────────────────────────────────────────────────── */
-  .fine {
+  /* ─── How it runs, your data ─────────────────────────────────────── */
+  .data__body { display: grid; gap: var(--space-4); max-width: 62ch; color: var(--color-text-soft); font-size: 1.05rem; }
+  .ways {
     display: grid;
-    grid-template-columns: 1fr 1fr;
-    border: 3px solid var(--color-border-strong);
-    background: var(--color-bg-card);
-  }
-  .fine__col { padding: var(--space-8); }
-  .fine__col + .fine__col { border-left: 3px solid var(--color-border-strong); }
-  .fine__col h3 { font-size: 2rem; margin-bottom: var(--space-5); }
-  .fine__col ul { display: grid; gap: var(--space-3); }
-  .fine__col li { position: relative; padding-left: 1.6em; color: var(--color-text-soft); }
-  .fine__col--enforced li::before { content: '■'; position: absolute; left: 0; color: var(--color-thread); }
-  .fine__col--asked li::before { content: '□'; position: absolute; left: 0; color: var(--color-accent-warm); }
-  .fine__data { margin-top: var(--space-6); max-width: 70ch; color: var(--color-text-soft); }
-
-  /* ─── CTA ────────────────────────────────────────────────────────── */
-  .cta {
-    display: grid;
-    grid-template-columns: minmax(0, 1.4fr) auto;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: var(--space-8);
-    align-items: end;
-    padding: var(--space-10);
-    background: var(--color-text);
-    color: var(--color-bg);
-    border: 3px solid var(--color-border-strong);
-    box-shadow: 10px 10px 0 var(--color-accent-warm);
+    max-width: 960px;
+    margin-top: var(--space-10);
   }
-  .cta__eyebrow { color: var(--color-accent-warm); }
-  .cta__title { font-size: clamp(2.2rem, 5vw, 3.6rem); color: var(--color-bg); margin-top: var(--space-3); }
-  .cta__links { display: flex; flex-wrap: wrap; gap: var(--space-4); }
+  .way {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-5);
+    padding: var(--space-6);
+    background: var(--color-bg-card);
+    border: 3px solid var(--color-border-strong);
+  }
+  .way__name { font-size: 1.8rem; }
+  .way ul { display: grid; gap: var(--space-3); flex: 1; }
+  .way li { color: var(--color-text-soft); }
+  .way .btn { align-self: start; }
 
-  /* ─── Responsive ─────────────────────────────────────────────────── */
   @media (max-width: 980px) {
-    .hero__grid, .lf, .reg, .floor, .cta { grid-template-columns: 1fr; }
+    .hero__grid, .reg { grid-template-columns: 1fr; }
     .hero__badge-wrap { margin-top: 0; }
-    .session { grid-template-columns: 7rem minmax(0, 1fr); }
-    .session__side { grid-column: 2; grid-template-columns: auto auto; justify-content: start; gap: var(--space-5); }
-    .session__tools { grid-column: 1 / -1; }
-    .passes { grid-template-columns: 1fr; max-width: 520px; }
-    .program__phase-head { grid-template-columns: auto 1fr; }
-    .program__phase-blurb { grid-column: 1 / -1; justify-self: start; }
+    .phases, .ways { grid-template-columns: 1fr; gap: var(--space-6); }
   }
   @media (max-width: 640px) {
-    .lf__item { grid-template-columns: 2.6rem 1fr; }
-    .lf__found { grid-column: 2; }
-    .session { grid-template-columns: 1fr; }
-    .session__side { grid-column: 1; grid-template-columns: 1fr; }
-    .floor__map {
-      grid-template-columns: 1fr 1fr;
-      grid-template-areas:
-        'prep     speakers'
-        'contacts contacts'
-        'slides   slides'
-        'drafts   cards'
-        'notes    exports'
-        'reg      reg'
-        'door     door';
-    }
-    .fine { grid-template-columns: 1fr; }
-    .fine__col + .fine__col { border-left: 0; border-top: 3px solid var(--color-border-strong); }
-    .cta { padding: var(--space-6); }
     .lanyard { transform: scale(0.8); }
   }
 </style>

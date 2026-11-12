@@ -94,39 +94,20 @@ const base = import.meta.env.BASE_URL;
     <Analytics />
   </head>
   <body>
-    <div class="bg-mesh" aria-hidden="true"></div>
     {!hideHeader && <Header />}
     <slot />
     <footer class="site-footer">
       <div class="container site-footer__inner">
-        <div class="site-footer__sign" aria-hidden="true">Exit</div>
-        <div class="site-footer__col">
-          <p class="eyebrow">Source</p>
-          <p>
-            <a href={REPO_URL} target="_blank" rel="noopener">github</a>
-            ·
-            <a href={`${REPO_URL}/blob/main/COLLABORATE.md`} target="_blank" rel="noopener">collaborate</a>
-          </p>
-        </div>
-        <div class="site-footer__col">
-          <p class="eyebrow">Read</p>
-          <p>
-            <a href={`${base}changelog/`}>changelog</a>
-            ·
-            <a href={`${base}context-v/`}>context</a>
-            ·
-            <a href={`${REPO_URL}/blob/main/DATA-POLICY.md`} target="_blank" rel="noopener">data policy</a>
-          </p>
-        </div>
-        <div class="site-footer__col">
-          <p class="eyebrow">Made by</p>
-          <p>
-            <a href="https://lossless.group" target="_blank" rel="noopener">The Lossless Group</a>
-          </p>
-        </div>
-        <div class="site-footer__legal">
-          <p>Apache-2.0. Credit appreciated. First worked the floor at the 7x24 Exchange Fall 2026, with Edviro Energy.</p>
-        </div>
+        <p>
+          <a href={REPO_URL} target="_blank" rel="noopener">GitHub</a>
+          · <a href={`${base}changelog/`}>Changelog</a>
+          · <a href={`${base}context-v/`}>Design notes</a>
+          · <a href={`${REPO_URL}/blob/main/DATA-POLICY.md`} target="_blank" rel="noopener">Data policy</a>
+          · <a href={`${REPO_URL}/blob/main/COLLABORATE.md`} target="_blank" rel="noopener">Contribute</a>
+        </p>
+        <p class="site-footer__legal">
+          Apache-2.0. Made by <a href="https://lossless.group" target="_blank" rel="noopener">The Lossless Group</a> with Edviro Energy.
+        </p>
       </div>
     </footer>
   </body>
@@ -141,35 +122,12 @@ const base = import.meta.env.BASE_URL;
   }
   .site-footer__inner {
     display: grid;
-    grid-template-columns: auto repeat(3, 1fr);
-    gap: var(--space-8);
-    align-items: start;
-  }
-  .site-footer__sign {
-    font-family: var(--font__display);
-    font-weight: 900;
-    font-size: 1.4rem;
-    letter-spacing: 0.1em;
-    text-transform: uppercase;
-    color: #fff;
-    background: var(--color__go);
-    padding: 4px 14px 2px;
-    border-radius: var(--radius-sm);
-  }
-  .site-footer__col p:not(.eyebrow) {
-    margin-top: var(--space-2);
+    gap: var(--space-3);
     color: var(--color-text-soft);
     font-size: 0.95rem;
   }
   .site-footer__legal {
-    grid-column: 1 / -1;
-    border-top: 1px solid var(--color-border);
-    padding-top: var(--space-4);
     color: var(--color-text-dim);
     font-size: 0.85rem;
-  }
-  @media (max-width: 800px) {
-    .site-footer__inner { grid-template-columns: 1fr 1fr; }
-    .site-footer__sign { justify-self: start; grid-column: 1 / -1; }
   }
 </style>

@@ -216,31 +216,6 @@ const contextVSchema = z
   })
   .passthrough();
 
-// ─── Curated collections (local to splash/) ───────────────────────────────
-
-/**
- * The program: what event-hog does, one session per capability, laid out
- * like a conference agenda. One .md per session in src/content/program/.
- * `status` is honest on purpose: `shipped`, or `partial` with a note.
- */
-const program = defineCollection({
-  loader: glob({ pattern: '*.md', base: './src/content/program' }),
-  schema: z
-    .object({
-      title: lenientString,
-      lede: lenientString,
-      phase: lenientString,
-      slot: lenientString,
-      room: lenientString,
-      track: lenientString,
-      tools: lenientStringArray,
-      status: lenientString,
-      status_note: lenientString,
-      order: lenientNumber,
-    })
-    .passthrough(),
-});
-
 // ─── Long-form collections (point at parent dirs) ─────────────────────────
 
 const changelog = defineCollection({
@@ -262,7 +237,6 @@ const contextV = defineCollection({
 });
 
 export const collections = {
-  program,
   changelog,
   'context-v': contextV,
 };
