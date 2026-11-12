@@ -68,10 +68,12 @@ export function connectorKey(person: Person): string {
   return person.key;
 }
 
+const possessive = (name: string) => (/s$/i.test(name) ? `${name}'` : `${name}'s`);
+
 /** "Acme's team", for telling people which team they're in. */
 export function teamName(env: Env, person: Person): string {
-  if (!person.team) return env.HOME_TEAM_NAME ? `${env.HOME_TEAM_NAME}'s team` : "this server's own team";
-  return person.team_name ? `${person.team_name}'s team` : "your own team (it takes your company's name once you run get_started)";
+  if (!person.team) return env.HOME_TEAM_NAME ? `${possessive(env.HOME_TEAM_NAME)} team` : "this server's own team";
+  return person.team_name ? `${possessive(person.team_name)} team` : "your own team (it takes your company's name once you run get_started)";
 }
 
 type Row = {

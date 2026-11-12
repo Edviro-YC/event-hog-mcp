@@ -310,6 +310,8 @@ async function instanceFor(env: Env, event: string): Promise<string> {
 export const ONBOARDING_HANDLERS: Record<string, Handler> = {
   async get_started(args, env, person) {
     const saved = await saveProfile(env, person, args);
+    // Someone invited to a team represents its company unless they say otherwise.
+    if (!person.company && person.team_name) person.company = person.team_name;
     const company = person.company;
     const name = person.guest ? null : person.name;
     const conference = String(args?.conference ?? "").trim();
