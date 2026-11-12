@@ -1055,7 +1055,7 @@ const HANDLERS: Record<string, Handler> = {
         const last = cut > 0 ? name.slice(cut + 1) : "";
         const owner = ownerFor(front, args?.owner, person);
         lines.push(
-          [front.email, first, last, front.company, front.title, front.phone, front.linkedin, PLACEHOLDER_EMAIL.test(owner) ? "" : owner, front.event, front.priority, f]
+          [front.email, first, last, front.company, front.title, e164(front.phone), front.linkedin, PLACEHOLDER_EMAIL.test(owner) ? "" : owner, front.event, front.priority, f]
             .map(csvCell)
             .join(","),
         );

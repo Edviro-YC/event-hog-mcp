@@ -52,9 +52,9 @@ Rename every added file to **Title-Case BEM**: `Block__Element--Modifier`,
 words joined by hyphens, each word capitalized. The block is usually the
 event, the element is what the file is:
 
-- `7x24-Exchange-Fall-2026__Attendee-List.csv`
-- `7x24-Exchange-Fall-2026__Sponsor-List--Gold-Tier.csv`
-- `7x24-Exchange-Fall-2026__Brochure.pdf`
+- `Acme-Expo-2026__Attendee-List.csv`
+- `Acme-Expo-2026__Sponsor-List--Gold-Tier.csv`
+- `Acme-Expo-2026__Brochure.pdf`
 
 Never keep a download's original name (`attendees (3).csv`). Files the
 server writes keep the names the server gives them.
