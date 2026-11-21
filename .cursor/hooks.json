@@ -1,0 +1,25 @@
+{
+  "version": 1,
+  "hooks": {
+    "sessionStart": [
+      {
+        "command": "sh .cursor/glen-hook.sh session-start --agent cursor"
+      }
+    ],
+    "beforeSubmitPrompt": [
+      {
+        "command": "sh .cursor/glen-hook.sh ingest --agent cursor"
+      }
+    ],
+    "afterAgentResponse": [
+      {
+        "command": "sh .cursor/glen-hook.sh ingest --agent cursor"
+      }
+    ],
+    "afterShellExecution": [
+      {
+        "command": "sh .cursor/glen-hook.sh pr-link --agent cursor"
+      }
+    ]
+  }
+}
